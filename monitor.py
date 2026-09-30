@@ -86,7 +86,6 @@ BUY_PATTERNS = [
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "").strip()
 SEND_TEST_NOTIFICATION = os.getenv("SEND_TEST_NOTIFICATION", "false").lower() == "true"
 STATUS_REPORT_INTERVAL_HOURS = int(os.getenv("STATUS_REPORT_INTERVAL_HOURS", "12"))
 
@@ -244,32 +243,6 @@ def detect_gameria_from_reader(text):
             return detect_direct_status(window, window)
 
     return None
-
-
-def scraperapi_fetch(url):
-    """Último fallback para Gameria usando ScraperAPI."""
-    if not SCRAPERAPI_KEY:
-        return None, "ScraperAPI no configurado"
-
-    try:
-        response = requests.get(
-            "https://api.scraperapi.com/",
-            params={
-                "api_key": SCRAPERAPI_KEY,
-                "url": url,
-                "country_code": "es",
-            },
-            timeout=75,
-            allow_redirects=True,
-        )
-
-        if response.status_code == 200 and len(response.text) > 500:
-            return response.text, "ScraperAPI"
-
-        return None, f"ScraperAPI HTTP {response.status_code}"
-
-    except requests.RequestException as exc:
-        return None, f"ScraperAPI error: {exc}"
 
 
 def visible_text(html):
@@ -585,47 +558,17 @@ def main():
                         }
                         continue
                 else:
-                    scraper_html, scraper_via = scraperapi_fetch(GAMERIA_CATEGORY_URL)
-
-                    if scraper_html:
-                        scraper_status = detect_gameria_category_status(scraper_html)
-
-                        if scraper_status is not None:
-                            new_status = scraper_status
-                            via = scraper_via
-                            text = visible_text(scraper_html)
-                            print(
-                                f"ℹ️ {store}: conexión directa y Reader bloqueados; "
-                                f"usando {scraper_via}"
-                            )
-                        else:
-                            print(
-                                f"❓ {store}: ScraperAPI respondió pero no localizó EB-05"
-                            )
-                            run_results[store] = {
-                                "connected": True,
-                                "healthy": False,
-                                "via": scraper_via,
-                                "note": "ScraperAPI responde, pero EB-05 no se pudo localizar",
-                            }
-                            continue
-                    else:
-                        print(
-                            f"❓ {store}: no se pudo cargar ficha, categoría, Reader "
-                            f"ni ScraperAPI ({first_error}; categoría: {category_error}; "
-                            f"reader: {reader_via}; scraper: {scraper_via})"
-                        )
-                        note = (
-                            "configura SCRAPERAPI_KEY para el fallback externo"
-                            if not SCRAPERAPI_KEY
-                            else "fallaron todos los métodos, incluido ScraperAPI"
-                        )
-                        run_results[store] = {
-                            "connected": False,
-                            "healthy": False,
-                            "note": note,
-                        }
-                        continue
+                    print(
+                        f"❓ {store}: no se pudo cargar ficha, categoría ni Reader "
+                        f"({first_error}; categoría: {category_error}; "
+                        f"reader: {reader_via})"
+                    )
+                    run_results[store] = {
+                        "connected": False,
+                        "healthy": False,
+                        "note": "Gameria no es accesible desde GitHub Actions",
+                    }
+                    continue
         else:
             if not html:
                 print(f"❓ {store}: no se pudo cargar ({via})")
