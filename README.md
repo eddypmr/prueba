@@ -104,18 +104,3 @@ El informe indica:
 La primera ejecución tras activar esta función envía un informe inmediatamente. Después se guarda `_meta.last_status_report` en `state.json` y no se vuelve a enviar hasta que hayan pasado 12 horas.
 
 Si Telegram falla al enviar el parte, el monitor no marca el informe como entregado y vuelve a intentarlo en la siguiente ejecución de 30 minutos.
-
-
-## Gameria: fallback mediante ScraperAPI
-
-Gameria bloquea actualmente las conexiones directas procedentes de GitHub Actions y también devuelve 403 a Jina Reader.
-
-El monitor tiene un último fallback opcional mediante ScraperAPI. Para activarlo, crea este Repository Secret:
-
-`SCRAPERAPI_KEY`
-
-Ruta:
-
-**Settings → Secrets and variables → Actions → New repository secret**
-
-El código prueba ScraperAPI sin JavaScript rendering ni proxy premium para minimizar el consumo de créditos.
