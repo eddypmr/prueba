@@ -3,7 +3,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -86,6 +86,7 @@ BUY_PATTERNS = [
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 SEND_TEST_NOTIFICATION = os.getenv("SEND_TEST_NOTIFICATION", "false").lower() == "true"
+STATUS_REPORT_INTERVAL_HOURS = int(os.getenv("STATUS_REPORT_INTERVAL_HOURS", "12"))
 
 
 def utc_now():
@@ -360,9 +361,97 @@ def build_state_entry(mode, status, url, previous):
     }
 
 
+
+STATUS_LABELS = {
+    "NO_DISPONIBLE": "sin stock",
+    "DISPONIBLE": "DISPONIBLE",
+    "POSIBLE_STOCK": "posible cambio de stock",
+    "BUSCANDO": "buscando EB-05",
+    "EB05_ENCONTRADO": "EB-05 encontrado",
+}
+
+
+def status_report_due(state):
+    meta = state.get("_meta", {})
+    last_report = meta.get("last_status_report")
+
+    if not last_report:
+        return True
+
+    try:
+        last_dt = datetime.fromisoformat(last_report)
+    except (TypeError, ValueError):
+        return True
+
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+
+    return datetime.now(timezone.utc) - last_dt >= timedelta(
+        hours=STATUS_REPORT_INTERVAL_HOURS
+    )
+
+
+def build_status_report(results):
+    total = len(DIRECT_PRODUCTS) + len(DISCOVERY_PAGES)
+    healthy = sum(1 for item in results.values() if item.get("healthy"))
+    connected = sum(1 for item in results.values() if item.get("connected"))
+
+    if healthy == total:
+        headline = "✅ Todo funciona correctamente y todas las páginas responden."
+    elif connected == total:
+        headline = (
+            f"⚠️ El monitor está activo y conecta con las {total} páginas, "
+            f"pero {total - healthy} comprobación(es) no pudieron validarse del todo."
+        )
+    else:
+        headline = (
+            f"⚠️ El monitor está activo. {connected}/{total} páginas respondieron "
+            f"en esta pasada; {total - connected} no respondieron correctamente."
+        )
+
+    lines = [
+        "🩺 ESTADO MONITOR ONE PIECE EB-05",
+        "",
+        headline,
+        "",
+    ]
+
+    ordered_stores = list(DIRECT_PRODUCTS.keys()) + list(DISCOVERY_PAGES.keys())
+
+    for store in ordered_stores:
+        item = results.get(store)
+
+        if not item:
+            lines.append(f"⚠️ {store} — sin resultado en esta ejecución")
+            continue
+
+        if item.get("healthy"):
+            status = STATUS_LABELS.get(item.get("status"), item.get("status", "OK"))
+            via = item.get("via", "")
+            via_text = f" · {via}" if via else ""
+            lines.append(f"✅ {store} — {status}{via_text}")
+        elif item.get("connected"):
+            note = item.get("note", "respuesta recibida, pero no validada")
+            lines.append(f"⚠️ {store} — {note}")
+        else:
+            note = item.get("note", "sin conexión")
+            lines.append(f"❌ {store} — {note}")
+
+    lines.extend(
+        [
+            "",
+            "⏱ Comprobación de stock: cada 30 minutos",
+            f"📋 Informe de estado: cada {STATUS_REPORT_INTERVAL_HOURS} horas",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
 def main():
     state = load_state()
     changed = False
+    run_results = {}
 
     print(f"=== EB-05 monitor | {utc_now()} ===")
 
@@ -375,38 +464,77 @@ def main():
         html, via = get_html(url)
 
         # Gameria bloquea a veces la ficha individual desde runners cloud.
-        # En ese caso usamos su categoría One Piece, donde también aparece
-        # la tarjeta EB-05 con el estado de stock.
+        # En ese caso usamos su categoría One Piece, donde también puede
+        # aparecer la tarjeta EB-05 con el estado de stock.
         if not html and store == "GAMERIA":
+            first_error = via
             html, via = get_html(GAMERIA_CATEGORY_URL)
 
             if html:
                 new_status = detect_gameria_category_status(html)
+
                 if new_status is None:
-                    print(f"❓ {store}: categoría cargada pero EB-05 no apareció [{via}]")
+                    print(
+                        f"❓ {store}: categoría cargada pero EB-05 no apareció [{via}]"
+                    )
+                    run_results[store] = {
+                        "connected": True,
+                        "healthy": False,
+                        "via": via,
+                        "note": "conecta, pero no puedo localizar EB-05 en la categoría",
+                    }
                     continue
+
                 text = visible_text(html)
                 print(f"ℹ️ {store}: usando categoría One Piece como fallback")
             else:
-                print(f"❓ {store}: no se pudo cargar ficha ni categoría ({via})")
+                print(
+                    f"❓ {store}: no se pudo cargar ficha ni categoría "
+                    f"({first_error}; fallback: {via})"
+                )
+                run_results[store] = {
+                    "connected": False,
+                    "healthy": False,
+                    "note": "sin conexión desde GitHub Actions",
+                }
                 continue
+
         else:
             if not html:
                 print(f"❓ {store}: no se pudo cargar ({via})")
+                run_results[store] = {
+                    "connected": False,
+                    "healthy": False,
+                    "note": f"no respondió ({via})",
+                }
                 continue
 
             text = visible_text(html)
 
             if looks_blocked(text):
                 print(f"❓ {store}: página anti-bot/captcha detectada [{via}]")
+                run_results[store] = {
+                    "connected": True,
+                    "healthy": False,
+                    "via": via,
+                    "note": "respuesta anti-bot/captcha",
+                }
                 continue
 
             new_status = detect_direct_status(html, text)
+
         previous = state.get(store, {})
         old_status = previous.get("status")
 
         print(f"{store}: {new_status} [{via}]")
         notify_if_transition(store, old_status, new_status, url)
+
+        run_results[store] = {
+            "connected": True,
+            "healthy": True,
+            "status": new_status,
+            "via": via,
+        }
 
         new_entry = build_state_entry(
             mode="direct",
@@ -425,12 +553,23 @@ def main():
 
         if not html:
             print(f"❓ {store}: no se pudo cargar ({via})")
+            run_results[store] = {
+                "connected": False,
+                "healthy": False,
+                "note": f"no respondió ({via})",
+            }
             continue
 
         text = visible_text(html)
 
         if looks_blocked(text):
             print(f"❓ {store}: página anti-bot/captcha detectada [{via}]")
+            run_results[store] = {
+                "connected": True,
+                "healthy": False,
+                "via": via,
+                "note": "respuesta anti-bot/captcha",
+            }
             continue
 
         new_status = "EB05_ENCONTRADO" if has_eb05(text) else "BUSCANDO"
@@ -439,6 +578,13 @@ def main():
 
         print(f"{store}: {new_status} [{via}]")
         notify_if_transition(store, old_status, new_status, url)
+
+        run_results[store] = {
+            "connected": True,
+            "healthy": True,
+            "status": new_status,
+            "via": via,
+        }
 
         new_entry = build_state_entry(
             mode="discovery",
@@ -450,6 +596,22 @@ def main():
         if previous != new_entry:
             state[store] = new_entry
             changed = True
+
+    # Heartbeat/parte de salud: se envía cada 12 horas usando el mismo
+    # workflow que ya corre cada 30 minutos. Si Telegram falla, no marcamos
+    # el informe como enviado para reintentarlo en la siguiente ejecución.
+    if status_report_due(state):
+        report = build_status_report(run_results)
+        print("📋 Informe de estado periódico:")
+        print(report)
+
+        if send_telegram(report):
+            meta = state.setdefault("_meta", {})
+            meta["last_status_report"] = utc_now()
+            changed = True
+            print("✅ Informe periódico enviado y registrado.")
+        else:
+            print("⚠️ Informe periódico pendiente; se reintentará.")
 
     save_state(state)
 
