@@ -4,7 +4,24 @@ on:
   schedule:
     # Cada 30 minutos. Evitamos el minuto 00 para reducir retrasos del scheduler.
     - cron: "7,37 * * * *"
+
   workflow_dispatch:
+    inputs:
+      send_test_notification:
+        description: "Enviar un mensaje de prueba por Telegram"
+        required: false
+        type: boolean
+        default: false
+
+  # Sirve para validar automáticamente cambios en el monitor.
+  # Los commits de state.json NO vuelven a disparar el workflow.
+  push:
+    branches:
+      - main
+    paths:
+      - "monitor.py"
+      - "requirements.txt"
+      - ".github/workflows/eb05-monitor.yml"
 
 permissions:
   contents: write
@@ -38,6 +55,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEND_TEST_NOTIFICATION: ${{ github.event.inputs.send_test_notification || 'false' }}
         run: python monitor.py
 
       - name: Persist monitor state when it changes
