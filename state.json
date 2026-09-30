@@ -40,5 +40,8 @@
     "mode": "discovery",
     "status": "BUSCANDO",
     "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece"
+  },
+  "_meta": {
+    "last_status_report": "2026-09-30T18:52:31+00:00"
   }
 }
