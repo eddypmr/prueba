@@ -262,14 +262,18 @@ def main():
         print(f"{store}: {new_status} [{via}]")
         notify_if_transition(store, old_status, new_status, url)
 
+        previous = state.get(store, {})
         new_entry = {
             "mode": "direct",
             "status": new_status,
             "url": url,
-            "last_check": utc_now(),
             "via": via,
+            "last_changed": previous.get("last_changed", utc_now()),
         }
-        if state.get(store) != new_entry:
+        if old_status != new_status:
+            new_entry["last_changed"] = utc_now()
+
+        if previous != new_entry:
             state[store] = new_entry
             changed = True
 
@@ -286,14 +290,18 @@ def main():
         print(f"{store}: {new_status} [{via}]")
         notify_if_transition(store, old_status, new_status, cfg["url"])
 
+        previous = state.get(store, {})
         new_entry = {
             "mode": "discovery",
             "status": new_status,
             "url": cfg["url"],
-            "last_check": utc_now(),
             "via": via,
+            "last_changed": previous.get("last_changed", utc_now()),
         }
-        if state.get(store) != new_entry:
+        if old_status != new_status:
+            new_entry["last_changed"] = utc_now()
+
+        if previous != new_entry:
             state[store] = new_entry
             changed = True
 
