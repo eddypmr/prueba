@@ -25,6 +25,8 @@ DIRECT_PRODUCTS = {
     "GAMERIA": "https://gameria.es/juegos-de-cartas/one-piece-card-game-eb-05-caja-20167.html",
 }
 
+GAMERIA_CATEGORY_URL = "https://gameria.es/47-one-piece-card-game"
+
 DISCOVERY_PAGES = {
     "INGENIO_BCN": {
         "url": "https://www.ingeniobcn.com/etiqueta-producto/one-piece/",
@@ -236,6 +238,61 @@ def structured_availability(html):
     return None
 
 
+def detect_gameria_category_status(html):
+    """
+    Gameria a veces corta la conexión a la ficha desde IPs de datacenter.
+    Como fallback, buscamos EB-05 dentro de la tarjeta de producto de su
+    categoría One Piece y analizamos solo esa tarjeta.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    selectors = [
+        "article",
+        ".product-miniature",
+        ".product",
+        ".product-item",
+        ".js-product-miniature",
+    ]
+
+    seen = set()
+
+    for selector in selectors:
+        for node in soup.select(selector):
+            marker = id(node)
+            if marker in seen:
+                continue
+            seen.add(marker)
+
+            text = " ".join(node.stripped_strings)
+
+            if has_eb05(text):
+                return detect_direct_status(str(node), text)
+
+    # Fallback por ventana de texto si la plantilla no usa las clases anteriores.
+    text = visible_text(html)
+
+    for pattern in EB05_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            start = max(0, match.start() - 450)
+            end = min(len(text), match.end() + 450)
+            window = text[start:end]
+            return detect_direct_status(window, window)
+
+    return None
+
+
+def looks_blocked(text):
+    blocked_patterns = (
+        r"access denied",
+        r"verify you are human",
+        r"just a moment",
+        r"checking your browser",
+        r"captcha",
+    )
+    return any(re.search(pattern, text, re.I) for pattern in blocked_patterns)
+
+
 def detect_direct_status(html, text):
     structured = structured_availability(html)
 
@@ -317,12 +374,34 @@ def main():
     for store, url in DIRECT_PRODUCTS.items():
         html, via = get_html(url)
 
-        if not html:
-            print(f"❓ {store}: no se pudo cargar ({via})")
-            continue
+        # Gameria bloquea a veces la ficha individual desde runners cloud.
+        # En ese caso usamos su categoría One Piece, donde también aparece
+        # la tarjeta EB-05 con el estado de stock.
+        if not html and store == "GAMERIA":
+            html, via = get_html(GAMERIA_CATEGORY_URL)
 
-        text = visible_text(html)
-        new_status = detect_direct_status(html, text)
+            if html:
+                new_status = detect_gameria_category_status(html)
+                if new_status is None:
+                    print(f"❓ {store}: categoría cargada pero EB-05 no apareció [{via}]")
+                    continue
+                text = visible_text(html)
+                print(f"ℹ️ {store}: usando categoría One Piece como fallback")
+            else:
+                print(f"❓ {store}: no se pudo cargar ficha ni categoría ({via})")
+                continue
+        else:
+            if not html:
+                print(f"❓ {store}: no se pudo cargar ({via})")
+                continue
+
+            text = visible_text(html)
+
+            if looks_blocked(text):
+                print(f"❓ {store}: página anti-bot/captcha detectada [{via}]")
+                continue
+
+            new_status = detect_direct_status(html, text)
         previous = state.get(store, {})
         old_status = previous.get("status")
 
@@ -349,6 +428,11 @@ def main():
             continue
 
         text = visible_text(html)
+
+        if looks_blocked(text):
+            print(f"❓ {store}: página anti-bot/captcha detectada [{via}]")
+            continue
+
         new_status = "EB05_ENCONTRADO" if has_eb05(text) else "BUSCANDO"
         previous = state.get(store, {})
         old_status = previous.get("status")
