@@ -26,6 +26,7 @@ DIRECT_PRODUCTS = {
 }
 
 GAMERIA_CATEGORY_URL = "https://gameria.es/47-one-piece-card-game"
+JINA_READER_PREFIX = "https://r.jina.ai/"
 
 DISCOVERY_PAGES = {
     "INGENIO_BCN": {
@@ -200,6 +201,48 @@ def get_html(url, force_browser=False):
             return html, via
 
     return browser_fetch(url)
+
+
+def jina_reader_fetch(url):
+    """Fallback para sitios que bloquean las IP de GitHub Actions."""
+    reader_url = f"{JINA_READER_PREFIX}{url}"
+
+    try:
+        response = requests.get(
+            reader_url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/plain",
+                "X-No-Cache": "true",
+                "X-Cache-Tolerance": "0",
+                "X-Engine": "browser",
+                "DNT": "1",
+            },
+            timeout=60,
+            allow_redirects=True,
+        )
+
+        if response.status_code == 200 and len(response.text) > 200:
+            return response.text, "Jina Reader (fresh)"
+
+        return None, f"Jina Reader HTTP {response.status_code}"
+
+    except requests.RequestException as exc:
+        return None, f"Jina Reader error: {exc}"
+
+
+def detect_gameria_from_reader(text):
+    """Busca EB-05 en la salida textual del Reader y analiza solo su entorno."""
+    for pattern in EB05_PATTERNS:
+        match = pattern.search(text)
+
+        if match:
+            start = max(0, match.start() - 700)
+            end = min(len(text), match.end() + 900)
+            window = text[start:end]
+            return detect_direct_status(window, window)
+
+    return None
 
 
 def visible_text(html):
@@ -487,18 +530,45 @@ def main():
 
                 text = visible_text(html)
                 print(f"ℹ️ {store}: usando categoría One Piece como fallback")
-            else:
-                print(
-                    f"❓ {store}: no se pudo cargar ficha ni categoría "
-                    f"({first_error}; fallback: {via})"
-                )
-                run_results[store] = {
-                    "connected": False,
-                    "healthy": False,
-                    "note": "sin conexión desde GitHub Actions",
-                }
-                continue
 
+            else:
+                category_error = via
+                reader_text, reader_via = jina_reader_fetch(GAMERIA_CATEGORY_URL)
+
+                if reader_text:
+                    reader_status = detect_gameria_from_reader(reader_text)
+
+                    if reader_status is not None:
+                        new_status = reader_status
+                        via = reader_via
+                        text = reader_text
+                        print(
+                            f"ℹ️ {store}: conexión directa bloqueada; "
+                            f"usando {reader_via}"
+                        )
+                    else:
+                        print(
+                            f"❓ {store}: Reader respondió pero no localizó EB-05"
+                        )
+                        run_results[store] = {
+                            "connected": True,
+                            "healthy": False,
+                            "via": reader_via,
+                            "note": "Reader responde, pero EB-05 no se pudo localizar",
+                        }
+                        continue
+                else:
+                    print(
+                        f"❓ {store}: no se pudo cargar ficha, categoría ni Reader "
+                        f"({first_error}; categoría: {category_error}; "
+                        f"reader: {reader_via})"
+                    )
+                    run_results[store] = {
+                        "connected": False,
+                        "healthy": False,
+                        "note": "Gameria bloquea GitHub y falló el Reader externo",
+                    }
+                    continue
         else:
             if not html:
                 print(f"❓ {store}: no se pudo cargar ({via})")
