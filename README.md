@@ -88,3 +88,19 @@ Así evita mandar el mismo aviso cada 30 minutos.
 `state.json` guarda el último estado de cada tienda. GitHub Actions solo hace commit cuando cambia.
 
 Los secretos de Telegram no se guardan en ese archivo.
+
+
+## Informe de estado cada 12 horas
+
+Además de las alertas inmediatas de stock, el monitor envía por Telegram un parte de salud cada 12 horas.
+
+El informe indica:
+
+- cuántas tiendas han respondido correctamente en la última pasada;
+- el estado actual de cada ficha/catálogo;
+- si una web está bloqueando al runner, devuelve captcha o no responde;
+- qué comprobaciones usan HTTP normal y cuáles usan Playwright/Chromium.
+
+La primera ejecución tras activar esta función envía un informe inmediatamente. Después se guarda `_meta.last_status_report` en `state.json` y no se vuelve a enviar hasta que hayan pasado 12 horas.
+
+Si Telegram falla al enviar el parte, el monitor no marca el informe como entregado y vuelve a intentarlo en la siguiente ejecución de 30 minutos.
