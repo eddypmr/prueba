@@ -1,1 +1,44 @@
-{}
+{
+  "GARHIS": {
+    "last_changed": "2026-09-30T16:37:34+00:00",
+    "mode": "direct",
+    "status": "NO_DISPONIBLE",
+    "url": "https://garhis.es/trading-card-games/8968-booster-box-display-eb-05-24-sobres-ingles-one-piece-card-game-810199502779.html"
+  },
+  "INGENIO_BCN": {
+    "last_changed": "2026-09-30T16:37:40+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://www.ingeniobcn.com/etiqueta-producto/one-piece/"
+  },
+  "KABURI": {
+    "last_changed": "2026-09-30T16:37:36+00:00",
+    "mode": "direct",
+    "status": "NO_DISPONIBLE",
+    "url": "https://www.kaburi.es/One-Piece-Tcg-Eb05-Booster-Box-Ingl%C3%A9s.html"
+  },
+  "MATHOM": {
+    "last_changed": "2026-09-30T16:37:46+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://mathom.es/es/6900-one-piece-card-game"
+  },
+  "METROPOLIS_CENTER": {
+    "last_changed": "2026-09-30T16:37:44+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece"
+  },
+  "PAPER_DEALER": {
+    "last_changed": "2026-09-30T16:37:48+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://www.paperdealer.eu/collections/one-piece-tcg"
+  },
+  "ZACATRUS": {
+    "last_changed": "2026-09-30T16:37:47+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece"
+  }
+}
