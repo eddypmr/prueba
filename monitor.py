@@ -362,6 +362,29 @@ def detect_direct_status(html, text):
     return "DESCONOCIDO"
 
 
+def target_context_status(html, text):
+    """
+    En una ficha conocida, intenta resolver stock usando primero JSON-LD y
+    después una ventana alrededor de EB-05. Evita depender de una tarjeta
+    demasiado pequeña y reduce falsos positivos de productos recomendados.
+    """
+    structured = structured_availability(html)
+    if structured:
+        return structured
+
+    for pattern in EB05_PATTERNS:
+        match = pattern.search(text or "")
+        if match:
+            start = max(0, match.start() - 1400)
+            end = min(len(text), match.end() + 1800)
+            window = text[start:end]
+            status = detect_direct_status(window, window)
+            if status != "DESCONOCIDO":
+                return status
+
+    return "DESCONOCIDO"
+
+
 def extract_price(text):
     if not text:
         return None
@@ -663,15 +686,23 @@ def analyze_known_product(session, browser, url, force_browser=False):
         return None, f"{via}; contenido inesperado", final_url
 
     candidate = extract_eb05_candidate(html, final_url or url)
+    page_status = target_context_status(html, text)
 
     if candidate:
+        # Para fichas conocidas damos prioridad a la disponibilidad de la
+        # propia página (JSON-LD / contexto EB-05) sobre una tarjeta/anchor
+        # demasiado estrecha.
+        if page_status != "DESCONOCIDO":
+            candidate["status"] = page_status
+        if not candidate.get("price"):
+            candidate["price"] = extract_price(text)
         return candidate, via, final_url
 
     return {
         "product_url": final_url or url,
         "product_name": "One Piece EB-05",
         "price": extract_price(text),
-        "status": detect_direct_status(html, text),
+        "status": page_status,
         "source_url": final_url or url,
     }, via, final_url
 
