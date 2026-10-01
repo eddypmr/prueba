@@ -2,8 +2,9 @@ name: EB-05 Stock Monitor
 
 on:
   schedule:
-    # Cada 30 minutos. Evitamos el minuto 00 para reducir retrasos del scheduler.
-    - cron: "7,37 * * * *"
+    # Redundancia cada 15 minutos para compensar retrasos/saltos del scheduler de GitHub.
+    # Evitamos 00/15/30/45, que suelen tener más carga.
+    - cron: "7,22,37,52 * * * *"
 
   workflow_dispatch:
     inputs:
