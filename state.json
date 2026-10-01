@@ -1,8 +1,10 @@
 {
   "GARHIS": {
-    "last_changed": "2026-10-01T09:55:16+00:00",
+    "last_changed": "2026-10-01T14:09:19+00:00",
     "mode": "direct",
-    "status": "POSIBLE_STOCK",
+    "product_name": "One Piece EB-05",
+    "product_url": "https://garhis.es/trading-card-games/8968-booster-box-display-eb-05-24-sobres-ingles-one-piece-card-game-810199502779.html",
+    "status": "DESCONOCIDO",
     "url": "https://garhis.es/trading-card-games/8968-booster-box-display-eb-05-24-sobres-ingles-one-piece-card-game-810199502779.html"
   },
   "INGENIO_BCN": {
@@ -12,9 +14,11 @@
     "url": "https://www.ingeniobcn.com/etiqueta-producto/one-piece/"
   },
   "KABURI": {
-    "last_changed": "2026-09-30T16:37:36+00:00",
+    "last_changed": "2026-10-01T14:09:20+00:00",
     "mode": "direct",
-    "status": "NO_DISPONIBLE",
+    "product_name": "buscar",
+    "product_url": "https://www.kaburi.es/One-Piece-Tcg-Eb05-Booster-Box-Ingl%C3%A9s.html",
+    "status": "DESCONOCIDO",
     "url": "https://www.kaburi.es/One-Piece-Tcg-Eb05-Booster-Box-Ingl%C3%A9s.html"
   },
   "MATHOM": {
