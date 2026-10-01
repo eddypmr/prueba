@@ -483,7 +483,7 @@ def build_status_report(results):
     lines.extend(
         [
             "",
-            "⏱ Comprobación de stock: cada 30 minutos",
+            "⏱ Comprobación de stock: intento cada 15 min (GitHub best-effort)",
             f"📋 Informe de estado: cada {STATUS_REPORT_INTERVAL_HOURS} horas",
         ]
     )
