@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import html as html_lib
 import json
 import os
 import re
@@ -225,16 +226,95 @@ class BrowserFetcher:
         )
         page = context.new_page()
 
+        def rendered_snapshot():
+            """
+            Devuelve el HTML más las señales que ve el navegador ya renderizado.
+            Algunas tiendas pintan disponibilidad mediante JS/CSS y page.content()
+            por sí solo no siempre refleja el mismo texto que ve el usuario.
+            """
+            markup = page.content()
+
+            try:
+                body_text = page.locator("body").inner_text(timeout=5000)
+            except Exception:
+                body_text = ""
+
+            try:
+                runtime_signals = page.evaluate(
+                    """() => {
+                        const selectors = [
+                          '#product-availability',
+                          '.product-availability',
+                          '[itemprop="availability"]',
+                          '.availability',
+                          '.stock',
+                          '[class*="availability"]',
+                          '[id*="availability"]',
+                          '[class*="stock"]',
+                          '[id*="stock"]',
+                          '.product-actions',
+                          '.product-add-to-cart',
+                          '[data-button-action="add-to-cart"]',
+                          'button',
+                          'input[type="submit"]'
+                        ];
+
+                        const nodes = [...new Set(
+                          selectors.flatMap(s => [...document.querySelectorAll(s)])
+                        )];
+
+                        return nodes.map(el => {
+                          const before = getComputedStyle(el, '::before').content || '';
+                          const after = getComputedStyle(el, '::after').content || '';
+                          return [
+                            el.innerText || '',
+                            el.textContent || '',
+                            el.getAttribute('aria-label') || '',
+                            el.getAttribute('title') || '',
+                            el.getAttribute('value') || '',
+                            el.disabled ? 'disabled' : '',
+                            before,
+                            after
+                          ].join(' ');
+                        }).join('\n');
+                    }"""
+                )
+            except Exception:
+                runtime_signals = ""
+
+            rendered = "\n".join(
+                part for part in (body_text, runtime_signals) if part
+            )
+
+            if rendered:
+                injected = (
+                    '<div id="__monitor_runtime_signals">'
+                    + html_lib.escape(rendered)
+                    + "</div>"
+                )
+                if "</body>" in markup:
+                    markup = markup.replace("</body>", injected + "</body>", 1)
+                else:
+                    markup += injected
+
+            return markup
+
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(2500)
-            return page.content(), "Playwright/Chromium", page.url
+
+            try:
+                page.wait_for_load_state("networkidle", timeout=7000)
+            except Exception:
+                pass
+
+            page.wait_for_timeout(1500)
+            return rendered_snapshot(), "Playwright/Chromium + DOM", page.url
 
         except PlaywrightTimeoutError:
             try:
                 return (
-                    page.content(),
-                    "Playwright/Chromium (timeout parcial)",
+                    rendered_snapshot(),
+                    "Playwright/Chromium + DOM (timeout parcial)",
                     page.url or url,
                 )
             except Exception:
