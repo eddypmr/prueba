@@ -1,6 +1,6 @@
 # One Piece EB-05 Stock Monitor
 
-Monitor automático ejecutado con GitHub Actions cada 30 minutos.
+Monitor automático ejecutado con GitHub Actions con intentos cada 15 minutos para compensar retrasos o ejecuciones omitidas del scheduler.
 
 ## Qué vigila
 
@@ -20,10 +20,10 @@ Metrópolis Center se comprueba con Chromium + Playwright. Las demás tiendas in
 
 ## Frecuencia
 
-El workflow corre en los minutos **07 y 37 de cada hora**:
+El workflow intenta correr en los minutos **07, 22, 37 y 52 de cada hora**:
 
 ```
-7,37 * * * *
+7,22,37,52 * * * *
 ```
 
 También puede ejecutarse manualmente desde:
