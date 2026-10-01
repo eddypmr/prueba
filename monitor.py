@@ -5,10 +5,13 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 STATE_FILE = Path("state.json")
@@ -32,22 +35,32 @@ DISCOVERY_PAGES = {
     "INGENIO_BCN": {
         "url": "https://www.ingeniobcn.com/etiqueta-producto/one-piece/",
         "force_browser": False,
+        "max_pages": 8,
+        "required_patterns": [r"one\s*piece"],
     },
     "METROPOLIS_CENTER": {
         "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece",
         "force_browser": True,
+        "max_pages": 8,
+        "required_patterns": [r"one\s*piece"],
     },
     "MATHOM": {
         "url": "https://mathom.es/es/6900-one-piece-card-game",
         "force_browser": False,
+        "max_pages": 8,
+        "required_patterns": [r"one\s*piece"],
     },
     "ZACATRUS": {
         "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece",
         "force_browser": False,
+        "max_pages": 8,
+        "required_patterns": [r"one\s*piece"],
     },
     "PAPER_DEALER": {
         "url": "https://www.paperdealer.eu/collections/one-piece-tcg",
         "force_browser": False,
+        "max_pages": 8,
+        "required_patterns": [r"one\s*piece"],
     },
 }
 
@@ -83,6 +96,25 @@ BUY_PATTERNS = [
         r"add-to-cart",
     )
 ]
+
+BLOCKED_PATTERNS = (
+    r"access denied",
+    r"verify you are human",
+    r"just a moment",
+    r"checking your browser",
+    r"captcha",
+)
+
+PRODUCT_NODE_SELECTORS = (
+    "article",
+    ".product-miniature",
+    ".product",
+    ".product-item",
+    ".js-product-miniature",
+    ".product-card",
+    ".card-product",
+    "li.product",
+)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
@@ -136,32 +168,46 @@ def send_telegram(message):
         return False
 
 
-def http_fetch(url):
-    try:
-        response = requests.get(
-            url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-                "Cache-Control": "no-cache",
-            },
-            timeout=30,
-            allow_redirects=True,
-        )
+def build_http_session():
+    session = requests.Session()
+    retries = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        status=2,
+        backoff_factor=0.8,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(("GET", "HEAD")),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update(
+        {
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        }
+    )
+    return session
 
-        if response.status_code == 200 and len(response.text) > 500:
-            return response.text, f"HTTP {response.status_code}"
 
-        return None, f"HTTP {response.status_code}"
+class BrowserFetcher:
+    """Reutiliza una única instancia de Chromium durante toda la ejecución."""
 
-    except requests.RequestException as exc:
-        return None, f"HTTP error: {exc}"
+    def __init__(self):
+        self.playwright = None
+        self.browser = None
 
+    def _ensure_started(self):
+        if self.browser is not None:
+            return
 
-def browser_fetch(url):
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox",
@@ -170,48 +216,76 @@ def browser_fetch(url):
             ],
         )
 
-        page = browser.new_page(
+    def fetch(self, url):
+        self._ensure_started()
+        context = self.browser.new_context(
             user_agent=USER_AGENT,
             locale="es-ES",
             viewport={"width": 1440, "height": 1100},
         )
+        page = context.new_page()
 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(3500)
-            return page.content(), "Playwright/Chromium"
+            page.wait_for_timeout(2500)
+            return page.content(), "Playwright/Chromium", page.url
 
         except PlaywrightTimeoutError:
             try:
-                return page.content(), "Playwright/Chromium (timeout parcial)"
+                return (
+                    page.content(),
+                    "Playwright/Chromium (timeout parcial)",
+                    page.url or url,
+                )
             except Exception:
-                return None, "Playwright timeout"
+                return None, "Playwright timeout", url
 
         except Exception as exc:
-            return None, f"Playwright error: {exc}"
+            return None, f"Playwright error: {exc}", url
 
         finally:
-            browser.close()
+            context.close()
+
+    def close(self):
+        if self.browser is not None:
+            self.browser.close()
+            self.browser = None
+
+        if self.playwright is not None:
+            self.playwright.stop()
+            self.playwright = None
 
 
-def get_html(url, force_browser=False):
+def http_fetch(session, url):
+    try:
+        response = session.get(url, timeout=30, allow_redirects=True)
+
+        if response.status_code == 200 and len(response.text) > 500:
+            return response.text, f"HTTP {response.status_code}", response.url
+
+        return None, f"HTTP {response.status_code}", response.url
+
+    except requests.RequestException as exc:
+        return None, f"HTTP error: {exc}", url
+
+
+def get_html(session, browser, url, force_browser=False):
     if not force_browser:
-        html, via = http_fetch(url)
+        html, via, final_url = http_fetch(session, url)
         if html:
-            return html, via
+            return html, via, final_url
 
-    return browser_fetch(url)
+    return browser.fetch(url)
 
 
-def jina_reader_fetch(url):
-    """Fallback para sitios que bloquean las IP de GitHub Actions."""
+def jina_reader_fetch(session, url):
+    """Fallback gratuito para sitios que bloquean IPs de GitHub Actions."""
     reader_url = f"{JINA_READER_PREFIX}{url}"
 
     try:
-        response = requests.get(
+        response = session.get(
             reader_url,
             headers={
-                "User-Agent": USER_AGENT,
                 "Accept": "text/plain",
                 "X-No-Cache": "true",
                 "X-Cache-Tolerance": "0",
@@ -231,20 +305,6 @@ def jina_reader_fetch(url):
         return None, f"Jina Reader error: {exc}"
 
 
-def detect_gameria_from_reader(text):
-    """Busca EB-05 en la salida textual del Reader y analiza solo su entorno."""
-    for pattern in EB05_PATTERNS:
-        match = pattern.search(text)
-
-        if match:
-            start = max(0, match.start() - 700)
-            end = min(len(text), match.end() + 900)
-            window = text[start:end]
-            return detect_direct_status(window, window)
-
-    return None
-
-
 def visible_text(html):
     soup = BeautifulSoup(html, "html.parser")
 
@@ -255,86 +315,31 @@ def visible_text(html):
 
 
 def has_eb05(text):
-    return any(pattern.search(text) for pattern in EB05_PATTERNS)
+    return any(pattern.search(text or "") for pattern in EB05_PATTERNS)
+
+
+def looks_blocked(text):
+    return any(re.search(pattern, text or "", re.I) for pattern in BLOCKED_PATTERNS)
 
 
 def structured_availability(html):
-    """
-    Intenta obtener InStock/OutOfStock de datos estructurados de la ficha.
-    Es más fiable que buscar un texto genérico de 'Comprar' en toda la página.
-    """
-    lower_html = html.lower()
+    lower_html = (html or "").lower()
 
     if re.search(
-        r'availability["\s:]+[^}]{0,150}(outofstock|soldout)',
+        r'availability["\s:]+[^}]{0,180}(outofstock|soldout)',
         lower_html,
         re.I,
     ):
         return "NO_DISPONIBLE"
 
     if re.search(
-        r'availability["\s:]+[^}]{0,150}instock',
+        r'availability["\s:]+[^}]{0,180}instock',
         lower_html,
         re.I,
     ):
         return "DISPONIBLE"
 
     return None
-
-
-def detect_gameria_category_status(html):
-    """
-    Gameria a veces corta la conexión a la ficha desde IPs de datacenter.
-    Como fallback, buscamos EB-05 dentro de la tarjeta de producto de su
-    categoría One Piece y analizamos solo esa tarjeta.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-
-    selectors = [
-        "article",
-        ".product-miniature",
-        ".product",
-        ".product-item",
-        ".js-product-miniature",
-    ]
-
-    seen = set()
-
-    for selector in selectors:
-        for node in soup.select(selector):
-            marker = id(node)
-            if marker in seen:
-                continue
-            seen.add(marker)
-
-            text = " ".join(node.stripped_strings)
-
-            if has_eb05(text):
-                return detect_direct_status(str(node), text)
-
-    # Fallback por ventana de texto si la plantilla no usa las clases anteriores.
-    text = visible_text(html)
-
-    for pattern in EB05_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            start = max(0, match.start() - 450)
-            end = min(len(text), match.end() + 450)
-            window = text[start:end]
-            return detect_direct_status(window, window)
-
-    return None
-
-
-def looks_blocked(text):
-    blocked_patterns = (
-        r"access denied",
-        r"verify you are human",
-        r"just a moment",
-        r"checking your browser",
-        r"captcha",
-    )
-    return any(re.search(pattern, text, re.I) for pattern in blocked_patterns)
 
 
 def detect_direct_status(html, text):
@@ -343,74 +348,470 @@ def detect_direct_status(html, text):
     if structured:
         return structured
 
-    unavailable = any(pattern.search(text) for pattern in UNAVAILABLE_PATTERNS)
-    buy_signal = any(pattern.search(text) for pattern in BUY_PATTERNS)
+    unavailable = any(pattern.search(text or "") for pattern in UNAVAILABLE_PATTERNS)
+    buy_signal = any(pattern.search(text or "") for pattern in BUY_PATTERNS)
 
-    # Si la propia ficha declara explícitamente que está agotada,
-    # no interpretamos un "Comprar" de navegación/recomendaciones como stock.
     if unavailable:
         return "NO_DISPONIBLE"
 
     if buy_signal:
         return "DISPONIBLE"
 
-    return "POSIBLE_STOCK"
+    # No usamos "POSIBLE_STOCK": ausencia de una señal clara no equivale
+    # a reposición y no debe generar falsos positivos.
+    return "DESCONOCIDO"
 
 
-def notify_if_transition(store, old_status, new_status, url):
-    # Primera ejecución: crea la línea base pero no molesta con alertas.
-    if old_status is None or old_status == new_status:
+def extract_price(text):
+    if not text:
+        return None
+
+    patterns = (
+        r"(?<!\d)(\d{1,4}(?:[.,]\d{2})?)\s*€",
+        r"€\s*(\d{1,4}(?:[.,]\d{2})?)",
+    )
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return f"{match.group(1).replace('.', ',')} €"
+
+    return None
+
+
+def same_site(url_a, url_b):
+    try:
+        a = urlparse(url_a).hostname or ""
+        b = urlparse(url_b).hostname or ""
+        return a.lower().removeprefix("www.") == b.lower().removeprefix("www.")
+    except Exception:
+        return False
+
+
+def best_product_link(node, base_url):
+    anchors = list(node.find_all("a", href=True))
+
+    # Primero preferimos un enlace cuyo texto/href también identifique EB-05.
+    for anchor in anchors:
+        href = urljoin(base_url, anchor.get("href", ""))
+        descriptor = " ".join(
+            [
+                anchor.get_text(" ", strip=True),
+                anchor.get("title", "") or "",
+                href,
+            ]
+        )
+        if has_eb05(descriptor) and same_site(base_url, href):
+            return href
+
+    # Si la tarjeta ya es inequívocamente EB-05, usamos su primer enlace interno.
+    for anchor in anchors:
+        href = urljoin(base_url, anchor.get("href", ""))
+        if href.startswith(("http://", "https://")) and same_site(base_url, href):
+            return href
+
+    return None
+
+
+def extract_eb05_candidate(html, page_url):
+    """
+    Devuelve la tarjeta/ficha concreta de EB-05 si aparece en el catálogo.
+    Analizamos la tarjeta, no todo el documento, para evitar que el stock de
+    productos recomendados contamine el resultado.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    seen = set()
+
+    for selector in PRODUCT_NODE_SELECTORS:
+        for node in soup.select(selector):
+            marker = id(node)
+            if marker in seen:
+                continue
+            seen.add(marker)
+
+            text = " ".join(node.stripped_strings)
+            hrefs = " ".join(
+                urljoin(page_url, a.get("href", ""))
+                for a in node.find_all("a", href=True)
+            )
+
+            if not has_eb05(f"{text} {hrefs}"):
+                continue
+
+            product_url = best_product_link(node, page_url) or page_url
+            return {
+                "product_url": product_url,
+                "product_name": text[:220] if text else "One Piece EB-05",
+                "price": extract_price(text),
+                "status": detect_direct_status(str(node), text),
+                "source_url": page_url,
+            }
+
+    # Algunas tiendas no usan tarjetas de producto reconocibles. En ese caso
+    # buscamos un enlace individual que contenga EB-05.
+    for anchor in soup.find_all("a", href=True):
+        href = urljoin(page_url, anchor.get("href", ""))
+        descriptor = " ".join(
+            [
+                anchor.get_text(" ", strip=True),
+                anchor.get("title", "") or "",
+                href,
+            ]
+        )
+
+        if not has_eb05(descriptor) or not same_site(page_url, href):
+            continue
+
+        parent = anchor
+        for _ in range(4):
+            if not getattr(parent, "parent", None):
+                break
+            parent = parent.parent
+            parent_text = " ".join(parent.stripped_strings)
+            if len(parent_text) >= 80:
+                break
+
+        block_text = " ".join(parent.stripped_strings)
+        block_html = str(parent)
+        return {
+            "product_url": href,
+            "product_name": anchor.get_text(" ", strip=True)[:220]
+            or block_text[:220]
+            or "One Piece EB-05",
+            "price": extract_price(block_text),
+            "status": detect_direct_status(block_html, block_text),
+            "source_url": page_url,
+        }
+
+    # Último fallback: detectamos el texto y devolvemos la propia página.
+    page_text = visible_text(html)
+    for pattern in EB05_PATTERNS:
+        match = pattern.search(page_text)
+        if match:
+            start = max(0, match.start() - 550)
+            end = min(len(page_text), match.end() + 650)
+            window = page_text[start:end]
+            return {
+                "product_url": page_url,
+                "product_name": window[:220],
+                "price": extract_price(window),
+                "status": detect_direct_status(window, window),
+                "source_url": page_url,
+            }
+
+    return None
+
+
+def find_next_page(html, current_url):
+    soup = BeautifulSoup(html, "html.parser")
+    candidates = []
+
+    candidates.extend(soup.select('a[rel~="next"][href]'))
+    candidates.extend(
+        soup.select(
+            "a.next[href], a.page-next[href], "
+            ".pagination-next a[href], .next a[href], "
+            "li.next a[href], a[aria-label*='Next'][href], "
+            "a[aria-label*='Siguiente'][href]"
+        )
+    )
+
+    if not candidates:
+        for anchor in soup.find_all("a", href=True):
+            label = " ".join(
+                [
+                    anchor.get_text(" ", strip=True),
+                    anchor.get("aria-label", "") or "",
+                    anchor.get("title", "") or "",
+                ]
+            ).strip()
+            if re.fullmatch(r"(siguiente|next|›|»|>)", label, re.I):
+                candidates.append(anchor)
+
+    for anchor in candidates:
+        next_url = urljoin(current_url, anchor.get("href", ""))
+        if same_site(current_url, next_url) and next_url != current_url:
+            return next_url
+
+    return None
+
+
+def validate_catalog(text, config):
+    if looks_blocked(text):
+        return False, "página anti-bot/captcha"
+
+    required = config.get("required_patterns", [])
+    if required and not any(re.search(pattern, text, re.I) for pattern in required):
+        return False, "HTTP respondió, pero el contenido no parece ser el catálogo esperado"
+
+    return True, None
+
+
+def discover_eb05(session, browser, store, config):
+    """
+    Recorre la paginación real del catálogo hasta max_pages.
+    Si encuentra EB-05 devuelve su URL individual, nombre, precio y stock.
+    """
+    current_url = config["url"]
+    visited = set()
+    max_pages = config.get("max_pages", 8)
+    force_browser = config.get("force_browser", False)
+    pages_checked = 0
+    last_via = ""
+
+    while current_url and current_url not in visited and pages_checked < max_pages:
+        visited.add(current_url)
+        pages_checked += 1
+
+        html, via, final_url = get_html(
+            session,
+            browser,
+            current_url,
+            force_browser=force_browser,
+        )
+        last_via = via
+
+        if not html:
+            return {
+                "ok": False,
+                "connected": False if pages_checked == 1 else True,
+                "healthy": False,
+                "note": f"falló página {pages_checked} ({via})",
+                "pages_checked": pages_checked,
+            }
+
+        text = visible_text(html)
+        valid, problem = validate_catalog(text, config)
+
+        if not valid:
+            return {
+                "ok": False,
+                "connected": True,
+                "healthy": False,
+                "note": problem,
+                "via": via,
+                "pages_checked": pages_checked,
+            }
+
+        candidate = extract_eb05_candidate(html, final_url or current_url)
+        if candidate:
+            candidate.update(
+                {
+                    "ok": True,
+                    "connected": True,
+                    "healthy": True,
+                    "via": via,
+                    "pages_checked": pages_checked,
+                }
+            )
+            return candidate
+
+        next_url = find_next_page(html, final_url or current_url)
+        if not next_url or next_url in visited:
+            return {
+                "ok": True,
+                "connected": True,
+                "healthy": True,
+                "candidate": None,
+                "via": via,
+                "pages_checked": pages_checked,
+            }
+
+        current_url = next_url
+
+    # Si llegamos al límite con otra página pendiente, no afirmamos BUSCANDO
+    # como resultado completo: la exploración ha quedado incompleta.
+    if current_url and current_url not in visited:
+        return {
+            "ok": False,
+            "connected": True,
+            "healthy": False,
+            "note": f"límite de paginación alcanzado ({max_pages} páginas)",
+            "via": last_via,
+            "pages_checked": pages_checked,
+        }
+
+    return {
+        "ok": True,
+        "connected": True,
+        "healthy": True,
+        "candidate": None,
+        "via": last_via,
+        "pages_checked": pages_checked,
+    }
+
+
+def analyze_known_product(session, browser, url, force_browser=False):
+    html, via, final_url = get_html(
+        session,
+        browser,
+        url,
+        force_browser=force_browser,
+    )
+
+    if not html:
+        return None, via, final_url
+
+    text = visible_text(html)
+
+    if looks_blocked(text):
+        return None, f"{via}; anti-bot/captcha", final_url
+
+    # Una ficha EB-05 conocida debe seguir identificando el producto.
+    # El URL también cuenta porque algunas tiendas renderizan el nombre por JS.
+    if not has_eb05(f"{text} {final_url or url}"):
+        return None, f"{via}; contenido inesperado", final_url
+
+    candidate = extract_eb05_candidate(html, final_url or url)
+
+    if candidate:
+        return candidate, via, final_url
+
+    return {
+        "product_url": final_url or url,
+        "product_name": "One Piece EB-05",
+        "price": extract_price(text),
+        "status": detect_direct_status(html, text),
+        "source_url": final_url or url,
+    }, via, final_url
+
+
+def detect_gameria_from_reader(text):
+    for pattern in EB05_PATTERNS:
+        match = pattern.search(text or "")
+        if match:
+            start = max(0, match.start() - 700)
+            end = min(len(text), match.end() + 900)
+            window = text[start:end]
+            return {
+                "product_url": DIRECT_PRODUCTS["GAMERIA"],
+                "product_name": "One Piece EB-05",
+                "price": extract_price(window),
+                "status": detect_direct_status(window, window),
+                "source_url": GAMERIA_CATEGORY_URL,
+            }
+
+    return None
+
+
+def state_signature(entry):
+    return (
+        entry.get("mode"),
+        entry.get("status"),
+        entry.get("url"),
+        entry.get("product_url"),
+        entry.get("product_name"),
+        entry.get("price"),
+    )
+
+
+def build_state_entry(
+    mode,
+    status,
+    url,
+    previous,
+    product_url=None,
+    product_name=None,
+    price=None,
+):
+    entry = {
+        "mode": mode,
+        "status": status,
+        "url": url,
+    }
+
+    if product_url:
+        entry["product_url"] = product_url
+    if product_name:
+        entry["product_name"] = product_name
+    if price:
+        entry["price"] = price
+
+    previous_signature = state_signature(previous)
+    new_signature = state_signature(entry)
+
+    if previous_signature == new_signature and previous.get("last_changed"):
+        entry["last_changed"] = previous["last_changed"]
+    else:
+        entry["last_changed"] = utc_now()
+
+    return entry
+
+
+def notify_if_transition(store, previous, new_entry):
+    old_status = previous.get("status")
+    new_status = new_entry.get("status")
+    old_mode = previous.get("mode")
+    new_mode = new_entry.get("mode")
+    old_product_url = previous.get("product_url")
+    new_product_url = new_entry.get("product_url")
+    url = new_product_url or new_entry.get("url")
+    price = new_entry.get("price")
+    price_line = f"\n💶 {price}" if price else ""
+
+    product_appeared = (
+        new_mode == "discovered_product"
+        and (
+            old_mode != "discovered_product"
+            or (new_product_url and old_product_url != new_product_url)
+        )
+    )
+
+    # Importante: si la primera lectura ya encuentra una ficha disponible,
+    # avisamos en lugar de convertirla silenciosamente en baseline.
+    if not previous or old_status is None:
+        if new_status == "DISPONIBLE":
+            send_telegram(
+                f"🚨 ONE PIECE EB-05 DISPONIBLE\n\n"
+                f"🏪 {store}\n"
+                f"✅ Primera lectura y ya hay señales de compra/stock."
+                f"{price_line}\n\n{url}"
+            )
+        elif new_mode == "discovered_product":
+            send_telegram(
+                f"🆕 EB-05 DETECTADO EN UNA TIENDA\n\n"
+                f"🏪 {store}\n"
+                f"Estado inicial: {new_status}"
+                f"{price_line}\n\n{url}"
+            )
+        return
+
+    if product_appeared:
+        if new_status == "DISPONIBLE":
+            send_telegram(
+                f"🚨 NUEVA FICHA EB-05 Y ESTÁ DISPONIBLE\n\n"
+                f"🏪 {store}\n"
+                f"✅ Se ha descubierto la ficha del producto y tiene señales de compra."
+                f"{price_line}\n\n{url}"
+            )
+        else:
+            send_telegram(
+                f"🆕 EB-05 HA APARECIDO EN UNA TIENDA\n\n"
+                f"🏪 {store}\n"
+                f"Estado detectado: {new_status}"
+                f"{price_line}\n\n{url}"
+            )
+        return
+
+    if old_status == new_status:
         return
 
     if new_status == "DISPONIBLE":
         send_telegram(
             f"🚨 ONE PIECE EB-05 DISPONIBLE\n\n"
             f"🏪 {store}\n"
-            f"✅ Se detectan señales de compra/stock.\n\n"
-            f"{url}"
+            f"✅ Se detectan señales de compra/stock."
+            f"{price_line}\n\n{url}"
         )
 
-    elif new_status == "POSIBLE_STOCK" and old_status == "NO_DISPONIBLE":
-        send_telegram(
-            f"⚠️ POSIBLE REPOSICIÓN EB-05\n\n"
-            f"🏪 {store}\n"
-            f"Ya no se detecta claramente el estado de agotado.\n"
-            f"Conviene revisar la ficha.\n\n"
-            f"{url}"
-        )
-
-    elif new_status == "EB05_ENCONTRADO" and old_status == "BUSCANDO":
-        send_telegram(
-            f"🆕 EB-05 HA APARECIDO EN UNA TIENDA\n\n"
-            f"🏪 {store}\n"
-            f"Se ha detectado EB-05 / EB05 / Extra Booster 05 en el catálogo.\n\n"
-            f"{url}"
-        )
-
-
-def build_state_entry(mode, status, url, previous):
-    previous_status = previous.get("status")
-
-    if previous_status == status and previous.get("last_changed"):
-        last_changed = previous["last_changed"]
-    else:
-        last_changed = utc_now()
-
-    return {
-        "mode": mode,
-        "status": status,
-        "url": url,
-        "last_changed": last_changed,
-    }
-
+    # DESCONOCIDO no genera alerta de reposición: evitamos falsos positivos.
 
 
 STATUS_LABELS = {
     "NO_DISPONIBLE": "sin stock",
     "DISPONIBLE": "DISPONIBLE",
-    "POSIBLE_STOCK": "posible cambio de stock",
+    "DESCONOCIDO": "estado no concluyente",
     "BUSCANDO": "buscando EB-05",
-    "EB05_ENCONTRADO": "EB-05 encontrado",
 }
 
 
@@ -443,21 +844,16 @@ def build_status_report(results):
         headline = "✅ Todo funciona correctamente y todas las páginas responden."
     elif connected == total:
         headline = (
-            f"⚠️ El monitor está activo y conecta con las {total} páginas, "
+            f"⚠️ El monitor conecta con las {total} tiendas, "
             f"pero {total - healthy} comprobación(es) no pudieron validarse del todo."
         )
     else:
         headline = (
-            f"⚠️ El monitor está activo. {connected}/{total} páginas respondieron "
-            f"en esta pasada; {total - connected} no respondieron correctamente."
+            f"⚠️ El monitor está activo. {connected}/{total} tiendas respondieron; "
+            f"{total - connected} no respondieron correctamente."
         )
 
-    lines = [
-        "🩺 ESTADO MONITOR ONE PIECE EB-05",
-        "",
-        headline,
-        "",
-    ]
+    lines = ["🩺 ESTADO MONITOR ONE PIECE EB-05", "", headline, ""]
 
     ordered_stores = list(DIRECT_PRODUCTS.keys()) + list(DISCOVERY_PAGES.keys())
 
@@ -471,8 +867,14 @@ def build_status_report(results):
         if item.get("healthy"):
             status = STATUS_LABELS.get(item.get("status"), item.get("status", "OK"))
             via = item.get("via", "")
+            pages = item.get("pages_checked")
+            pages_text = f" · {pages} pág." if pages and pages > 1 else ""
+            price = item.get("price")
+            price_text = f" · {price}" if price else ""
             via_text = f" · {via}" if via else ""
-            lines.append(f"✅ {store} — {status}{via_text}")
+            lines.append(
+                f"✅ {store} — {status}{price_text}{pages_text}{via_text}"
+            )
         elif item.get("connected"):
             note = item.get("note", "respuesta recibida, pero no validada")
             lines.append(f"⚠️ {store} — {note}")
@@ -483,7 +885,7 @@ def build_status_report(results):
     lines.extend(
         [
             "",
-            "⏱ Comprobación de stock: intento cada 15 min (GitHub best-effort)",
+            "🔎 Catálogos: búsqueda con paginación + seguimiento de ficha detectada",
             f"📋 Informe de estado: cada {STATUS_REPORT_INTERVAL_HOURS} horas",
         ]
     )
@@ -491,206 +893,276 @@ def build_status_report(results):
     return "\n".join(lines)
 
 
+def update_store_state(state, store, new_entry):
+    previous = state.get(store, {})
+    notify_if_transition(store, previous, new_entry)
+
+    if previous != new_entry:
+        state[store] = new_entry
+        return True
+
+    return False
+
+
+def monitor_direct_store(session, browser, store, url, state, run_results):
+    previous = state.get(store, {})
+
+    candidate, via, final_url = analyze_known_product(
+        session,
+        browser,
+        url,
+        force_browser=False,
+    )
+
+    # Gameria tiene un tratamiento especial porque actualmente corta
+    # conexiones provenientes de GitHub Actions.
+    if candidate is None and store == "GAMERIA":
+        first_error = via
+        html, category_via, category_final_url = get_html(
+            session,
+            browser,
+            GAMERIA_CATEGORY_URL,
+            force_browser=False,
+        )
+
+        if html:
+            text = visible_text(html)
+
+            if not looks_blocked(text):
+                candidate = extract_eb05_candidate(
+                    html,
+                    category_final_url or GAMERIA_CATEGORY_URL,
+                )
+                if candidate:
+                    via = category_via
+                    print("ℹ️ GAMERIA: usando categoría One Piece como fallback")
+
+        if candidate is None:
+            reader_text, reader_via = jina_reader_fetch(session, GAMERIA_CATEGORY_URL)
+
+            if reader_text:
+                candidate = detect_gameria_from_reader(reader_text)
+                if candidate:
+                    via = reader_via
+
+        if candidate is None:
+            print(
+                f"❓ {store}: no se pudo analizar ficha/categoría/Reader "
+                f"({first_error}; categoría: {category_via}; reader: {reader_via})"
+            )
+            run_results[store] = {
+                "connected": False,
+                "healthy": False,
+                "note": "Gameria no es accesible desde GitHub Actions",
+            }
+            return False
+
+    if candidate is None:
+        print(f"❓ {store}: no se pudo analizar ({via})")
+        run_results[store] = {
+            "connected": False,
+            "healthy": False,
+            "note": f"no respondió o contenido inesperado ({via})",
+        }
+        return False
+
+    new_entry = build_state_entry(
+        mode="direct",
+        status=candidate["status"],
+        url=candidate.get("product_url") or final_url or url,
+        previous=previous,
+        product_url=candidate.get("product_url") or final_url or url,
+        product_name=candidate.get("product_name"),
+        price=candidate.get("price"),
+    )
+
+    print(f"{store}: {new_entry['status']} [{via}]")
+    run_results[store] = {
+        "connected": True,
+        "healthy": True,
+        "status": new_entry["status"],
+        "via": via,
+        "price": new_entry.get("price"),
+    }
+
+    return update_store_state(state, store, new_entry)
+
+
+def monitor_discovery_store(session, browser, store, config, state, run_results):
+    previous = state.get(store, {})
+
+    # Si en una ejecución anterior ya descubrimos la ficha concreta,
+    # primero la vigilamos directamente. Si desaparece o falla, volvemos
+    # automáticamente al catálogo y la buscamos de nuevo.
+    previous_product_url = previous.get("product_url")
+    if previous.get("mode") == "discovered_product" and previous_product_url:
+        candidate, via, _ = analyze_known_product(
+            session,
+            browser,
+            previous_product_url,
+            force_browser=False,
+        )
+
+        if candidate:
+            new_entry = build_state_entry(
+                mode="discovered_product",
+                status=candidate["status"],
+                url=config["url"],
+                previous=previous,
+                product_url=candidate.get("product_url") or previous_product_url,
+                product_name=candidate.get("product_name")
+                or previous.get("product_name"),
+                price=candidate.get("price"),
+            )
+
+            print(
+                f"{store}: {new_entry['status']} "
+                f"[ficha descubierta · {via}]"
+            )
+            run_results[store] = {
+                "connected": True,
+                "healthy": True,
+                "status": new_entry["status"],
+                "via": f"ficha directa · {via}",
+                "price": new_entry.get("price"),
+            }
+
+            return update_store_state(state, store, new_entry)
+
+        print(
+            f"ℹ️ {store}: la ficha guardada no pudo verificarse; "
+            "se vuelve a recorrer el catálogo."
+        )
+
+    discovery = discover_eb05(session, browser, store, config)
+
+    if not discovery.get("ok"):
+        print(f"❓ {store}: {discovery.get('note')}")
+        run_results[store] = {
+            "connected": discovery.get("connected", False),
+            "healthy": False,
+            "via": discovery.get("via", ""),
+            "note": discovery.get("note", "búsqueda incompleta"),
+            "pages_checked": discovery.get("pages_checked"),
+        }
+        return False
+
+    candidate = discovery.get("candidate")
+
+    # candidate también puede venir directamente en el dict de discovery.
+    if discovery.get("product_url"):
+        candidate = discovery
+
+    if candidate:
+        new_entry = build_state_entry(
+            mode="discovered_product",
+            status=candidate["status"],
+            url=config["url"],
+            previous=previous,
+            product_url=candidate.get("product_url"),
+            product_name=candidate.get("product_name"),
+            price=candidate.get("price"),
+        )
+
+        print(
+            f"{store}: EB-05 encontrado → {new_entry['status']} "
+            f"[{discovery.get('via')} · pág. {discovery.get('pages_checked')}]"
+        )
+        run_results[store] = {
+            "connected": True,
+            "healthy": True,
+            "status": new_entry["status"],
+            "via": discovery.get("via", ""),
+            "price": new_entry.get("price"),
+            "pages_checked": discovery.get("pages_checked"),
+        }
+
+        return update_store_state(state, store, new_entry)
+
+    new_entry = build_state_entry(
+        mode="discovery",
+        status="BUSCANDO",
+        url=config["url"],
+        previous=previous,
+    )
+
+    print(
+        f"{store}: BUSCANDO "
+        f"[{discovery.get('via')} · {discovery.get('pages_checked')} pág.]"
+    )
+    run_results[store] = {
+        "connected": True,
+        "healthy": True,
+        "status": "BUSCANDO",
+        "via": discovery.get("via", ""),
+        "pages_checked": discovery.get("pages_checked"),
+    }
+
+    return update_store_state(state, store, new_entry)
+
+
 def main():
     state = load_state()
     changed = False
     run_results = {}
+    session = build_http_session()
+    browser = BrowserFetcher()
 
     print(f"=== EB-05 monitor | {utc_now()} ===")
 
-    if SEND_TEST_NOTIFICATION:
-        send_telegram(
-            "✅ Test correcto: el monitor EB-05 puede enviarte avisos por Telegram."
-        )
+    try:
+        if SEND_TEST_NOTIFICATION:
+            send_telegram(
+                "✅ Test correcto: el monitor EB-05 puede enviarte avisos por Telegram."
+            )
 
-    for store, url in DIRECT_PRODUCTS.items():
-        html, via = get_html(url)
+        for store, url in DIRECT_PRODUCTS.items():
+            if monitor_direct_store(
+                session,
+                browser,
+                store,
+                url,
+                state,
+                run_results,
+            ):
+                changed = True
 
-        # Gameria bloquea a veces la ficha individual desde runners cloud.
-        # En ese caso usamos su categoría One Piece, donde también puede
-        # aparecer la tarjeta EB-05 con el estado de stock.
-        if not html and store == "GAMERIA":
-            first_error = via
-            html, via = get_html(GAMERIA_CATEGORY_URL)
+        for store, config in DISCOVERY_PAGES.items():
+            if monitor_discovery_store(
+                session,
+                browser,
+                store,
+                config,
+                state,
+                run_results,
+            ):
+                changed = True
 
-            if html:
-                new_status = detect_gameria_category_status(html)
+        if status_report_due(state):
+            report = build_status_report(run_results)
+            print("📋 Informe de estado periódico:")
+            print(report)
 
-                if new_status is None:
-                    print(
-                        f"❓ {store}: categoría cargada pero EB-05 no apareció [{via}]"
-                    )
-                    run_results[store] = {
-                        "connected": True,
-                        "healthy": False,
-                        "via": via,
-                        "note": "conecta, pero no puedo localizar EB-05 en la categoría",
-                    }
-                    continue
-
-                text = visible_text(html)
-                print(f"ℹ️ {store}: usando categoría One Piece como fallback")
-
+            if send_telegram(report):
+                meta = state.setdefault("_meta", {})
+                meta["last_status_report"] = utc_now()
+                changed = True
+                print("✅ Informe periódico enviado y registrado.")
             else:
-                category_error = via
-                reader_text, reader_via = jina_reader_fetch(GAMERIA_CATEGORY_URL)
+                print("⚠️ Informe periódico pendiente; se reintentará.")
 
-                if reader_text:
-                    reader_status = detect_gameria_from_reader(reader_text)
+        save_state(state)
 
-                    if reader_status is not None:
-                        new_status = reader_status
-                        via = reader_via
-                        text = reader_text
-                        print(
-                            f"ℹ️ {store}: conexión directa bloqueada; "
-                            f"usando {reader_via}"
-                        )
-                    else:
-                        print(
-                            f"❓ {store}: Reader respondió pero no localizó EB-05"
-                        )
-                        run_results[store] = {
-                            "connected": True,
-                            "healthy": False,
-                            "via": reader_via,
-                            "note": "Reader responde, pero EB-05 no se pudo localizar",
-                        }
-                        continue
-                else:
-                    print(
-                        f"❓ {store}: no se pudo cargar ficha, categoría ni Reader "
-                        f"({first_error}; categoría: {category_error}; "
-                        f"reader: {reader_via})"
-                    )
-                    run_results[store] = {
-                        "connected": False,
-                        "healthy": False,
-                        "note": "Gameria no es accesible desde GitHub Actions",
-                    }
-                    continue
+        if changed:
+            print("💾 state.json actualizado.")
         else:
-            if not html:
-                print(f"❓ {store}: no se pudo cargar ({via})")
-                run_results[store] = {
-                    "connected": False,
-                    "healthy": False,
-                    "note": f"no respondió ({via})",
-                }
-                continue
+            print("Sin cambios de estado.")
 
-            text = visible_text(html)
+        return 0
 
-            if looks_blocked(text):
-                print(f"❓ {store}: página anti-bot/captcha detectada [{via}]")
-                run_results[store] = {
-                    "connected": True,
-                    "healthy": False,
-                    "via": via,
-                    "note": "respuesta anti-bot/captcha",
-                }
-                continue
-
-            new_status = detect_direct_status(html, text)
-
-        previous = state.get(store, {})
-        old_status = previous.get("status")
-
-        print(f"{store}: {new_status} [{via}]")
-        notify_if_transition(store, old_status, new_status, url)
-
-        run_results[store] = {
-            "connected": True,
-            "healthy": True,
-            "status": new_status,
-            "via": via,
-        }
-
-        new_entry = build_state_entry(
-            mode="direct",
-            status=new_status,
-            url=url,
-            previous=previous,
-        )
-
-        if previous != new_entry:
-            state[store] = new_entry
-            changed = True
-
-    for store, config in DISCOVERY_PAGES.items():
-        url = config["url"]
-        html, via = get_html(url, force_browser=config["force_browser"])
-
-        if not html:
-            print(f"❓ {store}: no se pudo cargar ({via})")
-            run_results[store] = {
-                "connected": False,
-                "healthy": False,
-                "note": f"no respondió ({via})",
-            }
-            continue
-
-        text = visible_text(html)
-
-        if looks_blocked(text):
-            print(f"❓ {store}: página anti-bot/captcha detectada [{via}]")
-            run_results[store] = {
-                "connected": True,
-                "healthy": False,
-                "via": via,
-                "note": "respuesta anti-bot/captcha",
-            }
-            continue
-
-        new_status = "EB05_ENCONTRADO" if has_eb05(text) else "BUSCANDO"
-        previous = state.get(store, {})
-        old_status = previous.get("status")
-
-        print(f"{store}: {new_status} [{via}]")
-        notify_if_transition(store, old_status, new_status, url)
-
-        run_results[store] = {
-            "connected": True,
-            "healthy": True,
-            "status": new_status,
-            "via": via,
-        }
-
-        new_entry = build_state_entry(
-            mode="discovery",
-            status=new_status,
-            url=url,
-            previous=previous,
-        )
-
-        if previous != new_entry:
-            state[store] = new_entry
-            changed = True
-
-    # Heartbeat/parte de salud: se envía cada 12 horas usando el mismo
-    # workflow que ya corre cada 30 minutos. Si Telegram falla, no marcamos
-    # el informe como enviado para reintentarlo en la siguiente ejecución.
-    if status_report_due(state):
-        report = build_status_report(run_results)
-        print("📋 Informe de estado periódico:")
-        print(report)
-
-        if send_telegram(report):
-            meta = state.setdefault("_meta", {})
-            meta["last_status_report"] = utc_now()
-            changed = True
-            print("✅ Informe periódico enviado y registrado.")
-        else:
-            print("⚠️ Informe periódico pendiente; se reintentará.")
-
-    save_state(state)
-
-    if changed:
-        print("💾 state.json actualizado.")
-    else:
-        print("Sin cambios de estado.")
-
-    return 0
+    finally:
+        browser.close()
+        session.close()
 
 
 if __name__ == "__main__":
