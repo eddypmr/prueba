@@ -364,23 +364,93 @@ def detect_direct_status(html, text):
 
 def target_context_status(html, text):
     """
-    En una ficha conocida, intenta resolver stock usando primero JSON-LD y
-    después una ventana alrededor de EB-05. Evita depender de una tarjeta
-    demasiado pequeña y reduce falsos positivos de productos recomendados.
+    Resuelve el stock de una ficha individual conocida.
+
+    En una ficha directa sí podemos usar señales explícitas de toda la página
+    como último fallback, porque ya sabemos que la URL corresponde a EB-05.
+    En páginas de categoría NO se usa esta función.
     """
     structured = structured_availability(html)
     if structured:
         return structured
 
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Bloques habituales de disponibilidad/compra en Prestashop,
+    # WooCommerce y plantillas similares.
+    selectors = (
+        "#product-availability",
+        ".product-availability",
+        "[itemprop='availability']",
+        ".availability",
+        ".stock",
+        ".product-actions",
+        ".product-add-to-cart",
+        ".add-to-cart",
+        ".product-information",
+    )
+
+    for selector in selectors:
+        for node in soup.select(selector):
+            node_text = " ".join(node.stripped_strings)
+            if not node_text:
+                continue
+
+            if any(pattern.search(node_text) for pattern in UNAVAILABLE_PATTERNS):
+                return "NO_DISPONIBLE"
+
+            # Solo consideramos compra disponible si el elemento no está
+            # deshabilitado de forma explícita.
+            disabled = (
+                node.has_attr("disabled")
+                or node.get("aria-disabled") == "true"
+                or "disabled" in (node.get("class") or [])
+            )
+            if not disabled and any(pattern.search(node_text) for pattern in BUY_PATTERNS):
+                return "DISPONIBLE"
+
+    # Segundo intento: una ventana amplia alrededor de cada aparición de EB-05.
     for pattern in EB05_PATTERNS:
-        match = pattern.search(text or "")
-        if match:
-            start = max(0, match.start() - 1400)
-            end = min(len(text), match.end() + 1800)
+        for match in pattern.finditer(text or ""):
+            start = max(0, match.start() - 1800)
+            end = min(len(text), match.end() + 3500)
             window = text[start:end]
-            status = detect_direct_status(window, window)
-            if status != "DESCONOCIDO":
-                return status
+
+            if any(p.search(window) for p in UNAVAILABLE_PATTERNS):
+                return "NO_DISPONIBLE"
+
+            if any(p.search(window) for p in BUY_PATTERNS):
+                return "DISPONIBLE"
+
+    # Último fallback SOLO para fichas individuales conocidas:
+    # una señal explícita de agotado en la página tiene prioridad.
+    if any(pattern.search(text or "") for pattern in UNAVAILABLE_PATTERNS):
+        return "NO_DISPONIBLE"
+
+    # Para marcar disponible exigimos un control de compra accionable,
+    # no solo la palabra "Comprar" perdida en recomendaciones o navegación.
+    actionable_selectors = (
+        "button:not([disabled])",
+        "input[type='submit']:not([disabled])",
+        "a.add-to-cart",
+        "button.add-to-cart:not([disabled])",
+        "[data-button-action='add-to-cart']:not([disabled])",
+    )
+
+    for selector in actionable_selectors:
+        for node in soup.select(selector):
+            node_text = " ".join(node.stripped_strings)
+            descriptor = " ".join(
+                [
+                    node_text,
+                    node.get("title", "") or "",
+                    node.get("aria-label", "") or "",
+                    node.get("value", "") or "",
+                ]
+            )
+
+            if any(pattern.search(descriptor) for pattern in BUY_PATTERNS):
+                return "DISPONIBLE"
 
     return "DESCONOCIDO"
 
