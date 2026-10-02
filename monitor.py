@@ -41,7 +41,7 @@ DISCOVERY_PAGES = {
     },
     "METROPOLIS_CENTER": {
         "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece",
-        "force_browser": True,
+        "force_browser": False,
         "max_pages": 8,
         "required_patterns": [r"one\s*piece"],
     },
@@ -311,10 +311,27 @@ class BrowserFetcher:
             return rendered_snapshot(), "Playwright/Chromium + DOM", page.url
 
         except PlaywrightTimeoutError:
+            # Algunos comercios dejan recursos colgados y nunca completan
+            # DOMContentLoaded. Primero intentamos aprovechar el DOM parcial.
             try:
+                partial = rendered_snapshot()
+                if partial and len(partial) > 1000:
+                    return (
+                        partial,
+                        "Playwright/Chromium + DOM (timeout parcial)",
+                        page.url or url,
+                    )
+            except Exception:
+                pass
+
+            # Segundo intento ligero: basta con que el servidor empiece a
+            # entregar el documento; después dejamos unos segundos al JS.
+            try:
+                page.goto(url, wait_until="commit", timeout=20000)
+                page.wait_for_timeout(4000)
                 return (
                     rendered_snapshot(),
-                    "Playwright/Chromium + DOM (timeout parcial)",
+                    "Playwright/Chromium + DOM (retry)",
                     page.url or url,
                 )
             except Exception:
@@ -456,6 +473,52 @@ def target_context_status(html, text):
 
     soup = BeautifulSoup(html, "html.parser")
 
+    # En una ficha individual conocida, un control de compra explícitamente
+    # deshabilitado es una señal fuerte de no disponibilidad. Esto cubre
+    # tiendas como Garhis, que muestran "Añadir a la cesta" pero desactivado.
+    purchase_controls = soup.select(
+        "button, input[type='submit'], a.add-to-cart, "
+        "[data-button-action='add-to-cart']"
+    )
+    enabled_buy_control = False
+
+    for node in purchase_controls:
+        descriptor = " ".join(
+            [
+                " ".join(node.stripped_strings),
+                node.get("title", "") or "",
+                node.get("aria-label", "") or "",
+                node.get("value", "") or "",
+            ]
+        )
+        if not any(pattern.search(descriptor) for pattern in BUY_PATTERNS):
+            continue
+
+        classes = [str(x).lower() for x in (node.get("class") or [])]
+        disabled = (
+            node.has_attr("disabled")
+            or str(node.get("aria-disabled", "")).lower() == "true"
+            or "disabled" in classes
+            or "is-disabled" in classes
+        )
+
+        if disabled:
+            return "NO_DISPONIBLE"
+
+        enabled_buy_control = True
+
+    # Playwright inyecta además las señales del DOM ya renderizado como texto.
+    # Si vemos un botón de compra seguido de "disabled", mantenemos el mismo
+    # criterio aunque el atributo no estuviera presente en page.content().
+    disabled_buy_patterns = (
+        r"añadir\s+(?:a\s+la\s+)?cesta.{0,160}\bdisabled\b",
+        r"añadir\s+(?:al\s+)?carrito.{0,160}\bdisabled\b",
+        r"add\s+to\s+cart.{0,160}\bdisabled\b",
+        r"buy\s+now.{0,160}\bdisabled\b",
+    )
+    if any(re.search(pattern, text or "", re.I | re.S) for pattern in disabled_buy_patterns):
+        return "NO_DISPONIBLE"
+
     # Bloques habituales de disponibilidad/compra en Prestashop,
     # WooCommerce y plantillas similares.
     selectors = (
@@ -506,6 +569,9 @@ def target_context_status(html, text):
     # una señal explícita de agotado en la página tiene prioridad.
     if any(pattern.search(text or "") for pattern in UNAVAILABLE_PATTERNS):
         return "NO_DISPONIBLE"
+
+    if enabled_buy_control:
+        return "DISPONIBLE"
 
     # Para marcar disponible exigimos un control de compra accionable,
     # no solo la palabra "Comprar" perdida en recomendaciones o navegación.
@@ -709,15 +775,56 @@ def find_next_page(html, current_url):
     return None
 
 
-def validate_catalog(text, config):
+def validate_catalog(html, text, config, final_url):
     if looks_blocked(text):
         return False, "página anti-bot/captcha"
 
-    required = config.get("required_patterns", [])
-    if required and not any(re.search(pattern, text, re.I) for pattern in required):
-        return False, "HTTP respondió, pero el contenido no parece ser el catálogo esperado"
+    # No aceptamos una redirección hacia otro dominio.
+    expected_url = config.get("url", "")
+    if final_url and expected_url and not same_site(expected_url, final_url):
+        return False, f"redirección inesperada a {final_url}"
 
-    return True, None
+    # Rechazamos errores evidentes, aunque el servidor responda HTTP 200.
+    error_patterns = (
+        r"\b404\b.{0,80}(not found|no encontrado|página no encontrada)",
+        r"(not found|no encontrado|página no encontrada).{0,80}\b404\b",
+        r"service unavailable",
+        r"temporarily unavailable",
+    )
+    if any(re.search(pattern, text or "", re.I | re.S) for pattern in error_patterns):
+        return False, "la tienda devolvió una página de error"
+
+    required = config.get("required_patterns", [])
+    if not required or any(re.search(pattern, text or "", re.I) for pattern in required):
+        return True, None
+
+    # Muchas tiendas cargan partes del catálogo por JS o cambian el encabezado.
+    # Si seguimos en el dominio correcto y el DOM tiene estructura real de
+    # catálogo/productos/paginación, la consideramos una respuesta válida.
+    soup = BeautifulSoup(html or "", "html.parser")
+    structural_selectors = (
+        "article",
+        ".product",
+        ".products",
+        ".product-item",
+        ".product-miniature",
+        ".js-product-miniature",
+        ".woocommerce-loop-product",
+        "li.product",
+        ".pagination",
+        "nav.pagination",
+        "a[rel~='next']",
+    )
+
+    if any(soup.select_one(selector) for selector in structural_selectors):
+        return True, None
+
+    # Último criterio: contenido sustancial en el dominio correcto. Es mejor
+    # seguir buscando y no declarar un falso fallo por una cabecera dinámica.
+    if len(text or "") >= 1200 and final_url and same_site(expected_url, final_url):
+        return True, None
+
+    return False, "respondió, pero no pude validar estructura de catálogo"
 
 
 def discover_eb05(session, browser, store, config):
@@ -754,7 +861,12 @@ def discover_eb05(session, browser, store, config):
             }
 
         text = visible_text(html)
-        valid, problem = validate_catalog(text, config)
+        valid, problem = validate_catalog(
+            html,
+            text,
+            config,
+            final_url or current_url,
+        )
 
         if not valid:
             return {
