@@ -617,80 +617,6 @@ def target_context_status(html, text):
     return "DESCONOCIDO"
 
 
-def debug_unknown_product_signals(store, html):
-    """Log mínimo para diagnosticar una ficha directa cuyo stock no se resuelve."""
-    if store != "GARHIS":
-        return
-
-    soup = BeautifulSoup(html or "", "html.parser")
-    runtime = soup.select_one("#__monitor_runtime_signals")
-    runtime_text = " ".join(runtime.stripped_strings) if runtime else ""
-
-    # Solo mostramos señales relevantes; nunca HTML completo.
-    snippets = []
-    for needle in (
-        "añadir a la cesta",
-        "añadir al carrito",
-        "no disponible",
-        "próximamente",
-        "disabled",
-        "pointer-events",
-        "availability",
-        "stock",
-    ):
-        pos = runtime_text.lower().find(needle.lower())
-        if pos >= 0:
-            start = max(0, pos - 120)
-            end = min(len(runtime_text), pos + 320)
-            snippets.append(runtime_text[start:end])
-
-    controls = []
-    for node in soup.select(
-        "button, input[type='submit'], a.add-to-cart, "
-        "[data-button-action='add-to-cart']"
-    ):
-        descriptor = " ".join(
-            [
-                " ".join(node.stripped_strings),
-                node.get("value", "") or "",
-                node.get("class", "") if isinstance(node.get("class"), str)
-                else " ".join(node.get("class") or []),
-                node.get("aria-disabled", "") or "",
-                "disabled" if node.has_attr("disabled") else "",
-            ]
-        ).strip()
-
-        if any(pattern.search(descriptor) for pattern in BUY_PATTERNS):
-            controls.append(descriptor[:400])
-
-    raw_lower = (html or "").lower()
-    raw_snippets = []
-    for needle in (
-        "available_for_order",
-        "availablefororder",
-        "quantity",
-        "product-availability",
-        "add-to-cart",
-        "out_of_stock",
-        "outofstock",
-        "stock",
-    ):
-        pos = raw_lower.find(needle)
-        if pos >= 0:
-            start = max(0, pos - 180)
-            end = min(len(html), pos + 520)
-            raw_snippets.append(
-                re.sub(r"\s+", " ", html[start:end])[:700]
-            )
-
-    print(
-        "🔬 GARHIS diagnóstico stock | "
-        f"runtime={' | '.join(snippets[:4]) or 'sin señales'} | "
-        f"controls={' || '.join(controls[:4]) or 'sin controles de compra detectados'} | "
-        f"raw={' || '.join(raw_snippets[:5]) or 'sin claves de stock en HTML'}"
-    )
-
-
 def extract_price(text):
     if not text:
         return None
@@ -1437,18 +1363,22 @@ def monitor_direct_store(session, browser, store, url, state, run_results):
         price=candidate.get("price"),
     )
 
-    print(f"{store}: {new_entry['status']} [{via}]")
     if new_entry["status"] == "DESCONOCIDO":
-        # Diagnóstico temporal/seguro para afinar tiendas con DOM peculiar.
-        # No imprime el HTML completo ni credenciales.
-        html_debug, _, _ = get_html(
-            session,
-            browser,
-            url,
-            force_browser=True,
+        print(
+            f"❓ {store}: ficha cargada pero el runner no puede resolver "
+            f"el estado de stock [{via}]"
         )
-        if html_debug:
-            debug_unknown_product_signals(store, html_debug)
+        run_results[store] = {
+            "connected": True,
+            "healthy": False,
+            "status": "DESCONOCIDO",
+            "via": via,
+            "note": "ficha accesible, pero el stock no es visible desde GitHub Actions",
+        }
+        # No sustituimos un estado fiable anterior por uno no concluyente.
+        return False
+
+    print(f"{store}: {new_entry['status']} [{via}]")
     run_results[store] = {
         "connected": True,
         "healthy": True,
