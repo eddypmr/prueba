@@ -266,13 +266,29 @@ class BrowserFetcher:
                         return nodes.map(el => {
                           const before = getComputedStyle(el, '::before').content || '';
                           const after = getComputedStyle(el, '::after').content || '';
+                          const style = getComputedStyle(el);
+                          const className =
+                            typeof el.className === 'string' ? el.className : '';
+                          const ariaDisabled =
+                            el.getAttribute('aria-disabled') || '';
+                          const isDisabled =
+                            el.matches(':disabled') ||
+                            el.hasAttribute('disabled') ||
+                            ariaDisabled.toLowerCase() === 'true' ||
+                            /(^|\\s)(disabled|is-disabled)(\\s|$)/i.test(className) ||
+                            style.pointerEvents === 'none';
+
                           return [
                             el.innerText || '',
                             el.textContent || '',
                             el.getAttribute('aria-label') || '',
                             el.getAttribute('title') || '',
                             el.getAttribute('value') || '',
-                            el.disabled ? 'disabled' : '',
+                            className,
+                            ariaDisabled,
+                            isDisabled ? 'disabled' : '',
+                            'pointer-events=' + style.pointerEvents,
+                            'opacity=' + style.opacity,
                             before,
                             after
                           ].join(' ');
