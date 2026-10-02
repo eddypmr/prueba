@@ -41,7 +41,7 @@ DISCOVERY_PAGES = {
     },
     "METROPOLIS_CENTER": {
         "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece",
-        "force_browser": False,
+        "force_browser": True,
         "max_pages": 8,
         "required_patterns": [r"one\s*piece"],
     },
@@ -798,6 +798,18 @@ def validate_catalog(html, text, config, final_url):
     if not required or any(re.search(pattern, text or "", re.I) for pattern in required):
         return True, None
 
+    # La URL canónica también sirve como identidad del catálogo. Por ejemplo
+    # /one-piece equivale al encabezado "One Piece" aunque el HTML dinámico no
+    # repita literalmente ese texto.
+    url_identity = re.sub(
+        r"[-_+%/]+",
+        " ",
+        (final_url or expected_url or "").lower(),
+    )
+    if required and any(re.search(pattern, url_identity, re.I) for pattern in required):
+        if len(text or "") >= 300:
+            return True, None
+
     # Muchas tiendas cargan partes del catálogo por JS o cambian el encabezado.
     # Si seguimos en el dominio correcto y el DOM tiene estructura real de
     # catálogo/productos/paginación, la consideramos una respuesta válida.
@@ -867,6 +879,26 @@ def discover_eb05(session, browser, store, config):
             config,
             final_url or current_url,
         )
+
+        if not valid and not via.startswith("Playwright"):
+            browser_html, browser_via, browser_final_url = browser.fetch(current_url)
+            if browser_html:
+                browser_text = visible_text(browser_html)
+                browser_valid, browser_problem = validate_catalog(
+                    browser_html,
+                    browser_text,
+                    config,
+                    browser_final_url or current_url,
+                )
+                if browser_valid:
+                    html = browser_html
+                    text = browser_text
+                    via = browser_via
+                    final_url = browser_final_url
+                    valid = True
+                    problem = None
+                else:
+                    problem = browser_problem
 
         if not valid:
             return {
@@ -958,6 +990,30 @@ def analyze_known_product(session, browser, url, force_browser=False):
             candidate["status"] = page_status
         if not candidate.get("price"):
             candidate["price"] = extract_price(text)
+
+        if candidate.get("status") != "DESCONOCIDO":
+            return candidate, via, final_url
+
+    elif page_status != "DESCONOCIDO":
+        return {
+            "product_url": final_url or url,
+            "product_name": "One Piece EB-05",
+            "price": extract_price(text),
+            "status": page_status,
+            "source_url": final_url or url,
+        }, via, final_url
+
+    # Si el navegador/HTML cargó la ficha pero no conseguimos resolver stock,
+    # hacemos un último intento textual gratuito desde otra infraestructura.
+    reader_text, reader_via = jina_reader_fetch(session, final_url or url)
+    reader_candidate = detect_known_product_from_reader(
+        reader_text,
+        final_url or url,
+    )
+    if reader_candidate:
+        return reader_candidate, f"{via} + {reader_via}", final_url
+
+    if candidate:
         return candidate, via, final_url
 
     return {
@@ -967,6 +1023,28 @@ def analyze_known_product(session, browser, url, force_browser=False):
         "status": page_status,
         "source_url": final_url or url,
     }, via, final_url
+
+
+def detect_known_product_from_reader(text, url):
+    """
+    Fallback textual para una ficha individual conocida.
+    Como la URL ya es del EB-05, aquí sí podemos usar señales explícitas de
+    toda la respuesta sin confundirnos con otro producto del catálogo.
+    """
+    if not text or not has_eb05(f"{text} {url}"):
+        return None
+
+    status = detect_direct_status(text, text)
+    if status == "DESCONOCIDO":
+        return None
+
+    return {
+        "product_url": url,
+        "product_name": "One Piece EB-05",
+        "price": extract_price(text),
+        "status": status,
+        "source_url": url,
+    }
 
 
 def detect_gameria_from_reader(text):
