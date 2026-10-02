@@ -663,10 +663,31 @@ def debug_unknown_product_signals(store, html):
         if any(pattern.search(descriptor) for pattern in BUY_PATTERNS):
             controls.append(descriptor[:400])
 
+    raw_lower = (html or "").lower()
+    raw_snippets = []
+    for needle in (
+        "available_for_order",
+        "availablefororder",
+        "quantity",
+        "product-availability",
+        "add-to-cart",
+        "out_of_stock",
+        "outofstock",
+        "stock",
+    ):
+        pos = raw_lower.find(needle)
+        if pos >= 0:
+            start = max(0, pos - 180)
+            end = min(len(html), pos + 520)
+            raw_snippets.append(
+                re.sub(r"\s+", " ", html[start:end])[:700]
+            )
+
     print(
         "🔬 GARHIS diagnóstico stock | "
         f"runtime={' | '.join(snippets[:4]) or 'sin señales'} | "
-        f"controls={' || '.join(controls[:4]) or 'sin controles de compra detectados'}"
+        f"controls={' || '.join(controls[:4]) or 'sin controles de compra detectados'} | "
+        f"raw={' || '.join(raw_snippets[:5]) or 'sin claves de stock en HTML'}"
     )
 
 
