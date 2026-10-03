@@ -1,4 +1,13 @@
 {
+  "GAMERIA": {
+    "last_changed": "2026-10-03T08:30:53+00:00",
+    "mode": "direct",
+    "price": "60 €",
+    "product_name": "One Piece Card Game Eb-05 Caja",
+    "product_url": "https://gameria.es/juegos-de-cartas/one-piece-card-game-eb-05-caja-20167.html",
+    "status": "NO_DISPONIBLE",
+    "url": "https://gameria.es/juegos-de-cartas/one-piece-card-game-eb-05-caja-20167.html"
+  },
   "GARHIS": {
     "last_changed": "2026-10-01T14:09:19+00:00",
     "mode": "direct",
@@ -47,6 +56,6 @@
     "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece"
   },
   "_meta": {
-    "last_status_report": "2026-10-02T20:05:13+00:00"
+    "last_status_report": "2026-10-03T08:31:14+00:00"
   }
 }
