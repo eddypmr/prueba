@@ -17,6 +17,8 @@ from urllib3.util.retry import Retry
 
 STATE_FILE = Path("state.json")
 
+# Heartbeat del monitor: comentario inocuo para validar el trigger por push.
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
