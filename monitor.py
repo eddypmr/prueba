@@ -17,6 +17,8 @@ from urllib3.util.retry import Retry
 
 STATE_FILE = Path("state.json")
 
+# Keepalive: sin cambios de lógica; valida el trigger por push del monitor.
+
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
