@@ -54,6 +54,11 @@ jobs:
       - name: Install Chromium for Playwright
         run: python -m playwright install --with-deps chromium
 
+      - name: Refresh latest monitor state
+        run: |
+          git fetch origin main
+          git checkout origin/main -- state.json
+
       - name: Check One Piece stock
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
