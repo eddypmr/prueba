@@ -6,7 +6,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urldefrag, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -1322,6 +1322,19 @@ def analyze_known_op18_product(session, browser, url, force_browser=False):
             candidate["status"] = page_status
         if not candidate.get("price"):
             candidate["price"] = extract_price(text)
+
+        candidate_name = (candidate.get("product_name") or "").strip()
+        if (
+            not candidate_name
+            or candidate_name.lower() in {"skip to content", "buscar", "search"}
+        ):
+            soup = BeautifulSoup(html, "html.parser")
+            heading = soup.find("h1")
+            if heading:
+                heading_text = heading.get_text(" ", strip=True)
+                if heading_text:
+                    candidate["product_name"] = heading_text[:220]
+
         return candidate, via, final_url
 
     return {
@@ -1371,14 +1384,17 @@ def build_state_entry(
     product_name=None,
     price=None,
 ):
+    clean_url = urldefrag(url)[0] if url else url
+    clean_product_url = urldefrag(product_url)[0] if product_url else product_url
+
     entry = {
         "mode": mode,
         "status": status,
-        "url": url,
+        "url": clean_url,
     }
 
-    if product_url:
-        entry["product_url"] = product_url
+    if clean_product_url:
+        entry["product_url"] = clean_product_url
     if product_name:
         entry["product_name"] = product_name
     if price:
@@ -1408,10 +1424,7 @@ def notify_if_transition(store, previous, new_entry):
 
     product_appeared = (
         new_mode == "discovered_product"
-        and (
-            old_mode != "discovered_product"
-            or (new_product_url and old_product_url != new_product_url)
-        )
+        and old_mode != "discovered_product"
     )
 
     # Importante: si la primera lectura ya encuentra una ficha disponible,
@@ -1477,10 +1490,7 @@ def notify_op18_transition(store, previous, new_entry):
 
     product_appeared = (
         new_mode == "discovered_product"
-        and (
-            old_mode != "discovered_product"
-            or (new_product_url and old_product_url != new_product_url)
-        )
+        and old_mode != "discovered_product"
     )
 
     if not previous or old_status is None:
