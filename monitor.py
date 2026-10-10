@@ -32,6 +32,11 @@ DIRECT_PRODUCTS = {
     "GAMERIA": "https://gameria.es/juegos-de-cartas/one-piece-card-game-eb-05-caja-20167.html",
 }
 
+OP18_DIRECT_PRODUCTS = {
+    "KABURI": "https://www.kaburi.es/One-Piece-Tcg-Op18-Booster-Box-Ingl%C3%A9s.html",
+    "GAMERIA": "https://gameria.es/juegos-de-cartas/one-piece-card-game-op-18-caja-20293.html",
+}
+
 GAMERIA_CATEGORY_URL = "https://gameria.es/47-one-piece-card-game"
 JINA_READER_PREFIX = "https://r.jina.ai/"
 
@@ -68,10 +73,18 @@ DISCOVERY_PAGES = {
     },
 }
 
+# OP-18 se descubre en los mismos catálogos One Piece que EB-05.
+OP18_DISCOVERY_PAGES = DISCOVERY_PAGES
+
 EB05_PATTERNS = [
     re.compile(r"\bEB[\s_-]*0?5\b", re.I),
     re.compile(r"\bEXTRA[\s_-]*BOOSTER[\s_-]*(?:EB[\s_-]*)?0?5\b", re.I),
     re.compile(r"\bEXTRA[\s_-]*BOOSTER[\s_-]*5\b", re.I),
+]
+
+OP18_PATTERNS = [
+    re.compile(r"\bOP[\s_-]*0?18\b", re.I),
+    re.compile(r"\bTHE[\s_-]+DOMINANCE[\s_-]+OF[\s_-]+GOD\b", re.I),
 ]
 
 UNAVAILABLE_PATTERNS = [
@@ -83,6 +96,9 @@ UNAVAILABLE_PATTERNS = [
         r"agotado",
         r"sin\s+existencias",
         r"en\s+reposici[oó]n",
+        r"pr[oó]ximamente",
+        r"pre[\s-]*orders?\s+open\s+soon",
+        r"coming\s+soon",
         r"sold\s*out",
         r"out\s+of\s+stock",
         r"unavailable",
@@ -434,6 +450,10 @@ def has_eb05(text):
     return any(pattern.search(text or "") for pattern in EB05_PATTERNS)
 
 
+def has_op18(text):
+    return any(pattern.search(text or "") for pattern in OP18_PATTERNS)
+
+
 def looks_blocked(text):
     return any(re.search(pattern, text or "", re.I) for pattern in BLOCKED_PATTERNS)
 
@@ -760,6 +780,102 @@ def extract_eb05_candidate(html, page_url):
     return None
 
 
+def extract_op18_candidate(html, page_url):
+    """
+    Localiza OP-18 dentro de un catálogo y devuelve la ficha más específica
+    posible para seguirla directamente en futuras ejecuciones.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    seen = set()
+
+    for selector in PRODUCT_NODE_SELECTORS:
+        for node in soup.select(selector):
+            marker = id(node)
+            if marker in seen:
+                continue
+            seen.add(marker)
+
+            text = " ".join(node.stripped_strings)
+            hrefs = " ".join(
+                urljoin(page_url, a.get("href", ""))
+                for a in node.find_all("a", href=True)
+            )
+
+            if not has_op18(f"{text} {hrefs}"):
+                continue
+
+            product_url = None
+            for anchor in node.find_all("a", href=True):
+                href = urljoin(page_url, anchor.get("href", ""))
+                descriptor = " ".join(
+                    [
+                        anchor.get_text(" ", strip=True),
+                        anchor.get("title", "") or "",
+                        href,
+                    ]
+                )
+                if has_op18(descriptor) and same_site(page_url, href):
+                    product_url = href
+                    break
+
+            if not product_url:
+                for anchor in node.find_all("a", href=True):
+                    href = urljoin(page_url, anchor.get("href", ""))
+                    if href.startswith(("http://", "https://")) and same_site(page_url, href):
+                        product_url = href
+                        break
+
+            return {
+                "product_url": product_url or page_url,
+                "product_name": text[:220] if text else "One Piece OP-18",
+                "price": extract_price(text),
+                "status": detect_direct_status(str(node), text),
+                "source_url": page_url,
+            }
+
+    for anchor in soup.find_all("a", href=True):
+        href = urljoin(page_url, anchor.get("href", ""))
+        descriptor = " ".join(
+            [
+                anchor.get_text(" ", strip=True),
+                anchor.get("title", "") or "",
+                href,
+            ]
+        )
+        if has_op18(descriptor) and same_site(page_url, href):
+            parent = anchor
+            for _ in range(4):
+                if not getattr(parent, "parent", None):
+                    break
+                parent = parent.parent
+                parent_text = " ".join(parent.stripped_strings)
+                if len(parent_text) >= 80:
+                    break
+
+            block_text = " ".join(parent.stripped_strings)
+            return {
+                "product_url": href,
+                "product_name": anchor.get_text(" ", strip=True)[:220]
+                or block_text[:220]
+                or "One Piece OP-18",
+                "price": extract_price(block_text),
+                "status": detect_direct_status(str(parent), block_text),
+                "source_url": page_url,
+            }
+
+    page_text = visible_text(html)
+    if has_op18(page_text):
+        return {
+            "product_url": page_url,
+            "product_name": "One Piece OP-18",
+            "price": extract_price(page_text),
+            "status": detect_direct_status(html, page_text),
+            "source_url": page_url,
+        }
+
+    return None
+
+
 def find_next_page(html, current_url):
     soup = BeautifulSoup(html, "html.parser")
     candidates = []
@@ -977,6 +1093,119 @@ def discover_eb05(session, browser, store, config):
     }
 
 
+def discover_op18(session, browser, store, config):
+    current_url = config["url"]
+    visited = set()
+    max_pages = config.get("max_pages", 8)
+    force_browser = config.get("force_browser", False)
+    pages_checked = 0
+    last_via = ""
+
+    while current_url and current_url not in visited and pages_checked < max_pages:
+        visited.add(current_url)
+        pages_checked += 1
+
+        html, via, final_url = get_html(
+            session,
+            browser,
+            current_url,
+            force_browser=force_browser,
+        )
+        last_via = via
+
+        if not html:
+            return {
+                "ok": False,
+                "connected": False if pages_checked == 1 else True,
+                "healthy": False,
+                "note": f"falló página {pages_checked} ({via})",
+                "pages_checked": pages_checked,
+            }
+
+        text = visible_text(html)
+        valid, problem = validate_catalog(
+            html,
+            text,
+            config,
+            final_url or current_url,
+        )
+
+        if not valid and not via.startswith("Playwright"):
+            browser_html, browser_via, browser_final_url = browser.fetch(current_url)
+            if browser_html:
+                browser_text = visible_text(browser_html)
+                browser_valid, browser_problem = validate_catalog(
+                    browser_html,
+                    browser_text,
+                    config,
+                    browser_final_url or current_url,
+                )
+                if browser_valid:
+                    html = browser_html
+                    text = browser_text
+                    via = browser_via
+                    final_url = browser_final_url
+                    valid = True
+                    problem = None
+                else:
+                    problem = browser_problem
+
+        if not valid:
+            return {
+                "ok": False,
+                "connected": True,
+                "healthy": False,
+                "note": problem,
+                "via": via,
+                "pages_checked": pages_checked,
+            }
+
+        candidate = extract_op18_candidate(html, final_url or current_url)
+        if candidate:
+            candidate.update(
+                {
+                    "ok": True,
+                    "connected": True,
+                    "healthy": True,
+                    "via": via,
+                    "pages_checked": pages_checked,
+                }
+            )
+            return candidate
+
+        next_url = find_next_page(html, final_url or current_url)
+        if not next_url or next_url in visited:
+            return {
+                "ok": True,
+                "connected": True,
+                "healthy": True,
+                "candidate": None,
+                "via": via,
+                "pages_checked": pages_checked,
+            }
+
+        current_url = next_url
+
+    if current_url and current_url not in visited:
+        return {
+            "ok": False,
+            "connected": True,
+            "healthy": False,
+            "note": f"límite de paginación alcanzado ({max_pages} páginas)",
+            "via": last_via,
+            "pages_checked": pages_checked,
+        }
+
+    return {
+        "ok": True,
+        "connected": True,
+        "healthy": True,
+        "candidate": None,
+        "via": last_via,
+        "pages_checked": pages_checked,
+    }
+
+
 def analyze_known_product(session, browser, url, force_browser=False):
     html, via, final_url = get_html(
         session,
@@ -1064,6 +1293,44 @@ def detect_known_product_from_reader(text, url):
         "status": status,
         "source_url": url,
     }
+
+
+def analyze_known_op18_product(session, browser, url, force_browser=False):
+    html, via, final_url = get_html(
+        session,
+        browser,
+        url,
+        force_browser=force_browser,
+    )
+
+    if not html:
+        return None, via, final_url
+
+    text = visible_text(html)
+
+    if looks_blocked(text):
+        return None, f"{via}; anti-bot/captcha", final_url
+
+    if not has_op18(f"{text} {final_url or url}"):
+        return None, f"{via}; contenido inesperado", final_url
+
+    candidate = extract_op18_candidate(html, final_url or url)
+    page_status = target_context_status(html, text)
+
+    if candidate:
+        if page_status != "DESCONOCIDO":
+            candidate["status"] = page_status
+        if not candidate.get("price"):
+            candidate["price"] = extract_price(text)
+        return candidate, via, final_url
+
+    return {
+        "product_url": final_url or url,
+        "product_name": "One Piece OP-18",
+        "price": extract_price(text),
+        "status": page_status,
+        "source_url": final_url or url,
+    }, via, final_url
 
 
 def detect_gameria_from_reader(text):
@@ -1197,6 +1464,231 @@ def notify_if_transition(store, previous, new_entry):
     # DESCONOCIDO no genera alerta de reposición: evitamos falsos positivos.
 
 
+def notify_op18_transition(store, previous, new_entry):
+    old_status = previous.get("status")
+    new_status = new_entry.get("status")
+    old_mode = previous.get("mode")
+    new_mode = new_entry.get("mode")
+    old_product_url = previous.get("product_url")
+    new_product_url = new_entry.get("product_url")
+    url = new_product_url or new_entry.get("url")
+    price = new_entry.get("price")
+    price_line = f"\n💶 {price}" if price else ""
+
+    product_appeared = (
+        new_mode == "discovered_product"
+        and (
+            old_mode != "discovered_product"
+            or (new_product_url and old_product_url != new_product_url)
+        )
+    )
+
+    if not previous or old_status is None:
+        if new_status == "DISPONIBLE":
+            send_telegram(
+                f"🚨 ONE PIECE OP-18 DISPONIBLE\n\n"
+                f"🏪 {store}\n"
+                f"✅ Primera lectura y ya hay señales de compra/stock."
+                f"{price_line}\n\n{url}"
+            )
+        elif new_mode == "discovered_product":
+            send_telegram(
+                f"🆕 OP-18 DETECTADO EN UNA TIENDA\n\n"
+                f"🏪 {store}\n"
+                f"Estado inicial: {new_status}"
+                f"{price_line}\n\n{url}"
+            )
+        return
+
+    if product_appeared:
+        send_telegram(
+            (
+                "🚨 NUEVA FICHA OP-18 Y ESTÁ DISPONIBLE"
+                if new_status == "DISPONIBLE"
+                else "🆕 OP-18 HA APARECIDO EN UNA TIENDA"
+            )
+            + f"\n\n🏪 {store}\n"
+            + f"Estado detectado: {new_status}"
+            + f"{price_line}\n\n{url}"
+        )
+        return
+
+    if old_status != new_status and new_status == "DISPONIBLE":
+        send_telegram(
+            f"🚨 ONE PIECE OP-18 DISPONIBLE\n\n"
+            f"🏪 {store}\n"
+            f"✅ Se detectan señales de compra/stock."
+            f"{price_line}\n\n{url}"
+        )
+
+
+def update_op18_state(state, store, new_entry):
+    key = f"OP18_{store}"
+    previous = state.get(key, {})
+    notify_op18_transition(store, previous, new_entry)
+
+    if previous != new_entry:
+        state[key] = new_entry
+        return True
+
+    return False
+
+
+def monitor_op18_direct_store(session, browser, store, url, state, run_results):
+    key = f"OP18_{store}"
+    previous = state.get(key, {})
+
+    candidate, via, final_url = analyze_known_op18_product(
+        session,
+        browser,
+        url,
+        force_browser=False,
+    )
+
+    if candidate is None:
+        print(f"❓ OP18_{store}: no se pudo analizar ({via})")
+        run_results[key] = {
+            "connected": False,
+            "healthy": False,
+            "note": f"no respondió o contenido inesperado ({via})",
+        }
+        return False
+
+    new_entry = build_state_entry(
+        mode="direct",
+        status=candidate["status"],
+        url=candidate.get("product_url") or final_url or url,
+        previous=previous,
+        product_url=candidate.get("product_url") or final_url or url,
+        product_name=candidate.get("product_name"),
+        price=candidate.get("price"),
+    )
+
+    if new_entry["status"] == "DESCONOCIDO":
+        print(f"❓ OP18_{store}: ficha cargada pero stock no concluyente [{via}]")
+        run_results[key] = {
+            "connected": True,
+            "healthy": False,
+            "status": "DESCONOCIDO",
+            "via": via,
+            "note": "ficha accesible, pero el stock no es concluyente",
+        }
+        return False
+
+    print(f"OP18_{store}: {new_entry['status']} [{via}]")
+    run_results[key] = {
+        "connected": True,
+        "healthy": True,
+        "status": new_entry["status"],
+        "via": via,
+        "price": new_entry.get("price"),
+    }
+
+    return update_op18_state(state, store, new_entry)
+
+
+def monitor_op18_discovery_store(session, browser, store, config, state, run_results):
+    key = f"OP18_{store}"
+    previous = state.get(key, {})
+
+    previous_product_url = previous.get("product_url")
+    if previous.get("mode") == "discovered_product" and previous_product_url:
+        candidate, via, _ = analyze_known_op18_product(
+            session,
+            browser,
+            previous_product_url,
+            force_browser=False,
+        )
+
+        if candidate:
+            new_entry = build_state_entry(
+                mode="discovered_product",
+                status=candidate["status"],
+                url=config["url"],
+                previous=previous,
+                product_url=candidate.get("product_url") or previous_product_url,
+                product_name=candidate.get("product_name")
+                or previous.get("product_name"),
+                price=candidate.get("price"),
+            )
+
+            print(
+                f"OP18_{store}: {new_entry['status']} "
+                f"[ficha descubierta · {via}]"
+            )
+            run_results[key] = {
+                "connected": True,
+                "healthy": new_entry["status"] != "DESCONOCIDO",
+                "status": new_entry["status"],
+                "via": f"ficha directa · {via}",
+                "price": new_entry.get("price"),
+            }
+
+            if new_entry["status"] == "DESCONOCIDO":
+                return False
+            return update_op18_state(state, store, new_entry)
+
+    discovery = discover_op18(session, browser, store, config)
+
+    if not discovery.get("ok"):
+        print(f"❓ OP18_{store}: {discovery.get('note')}")
+        run_results[key] = {
+            "connected": discovery.get("connected", False),
+            "healthy": False,
+            "via": discovery.get("via", ""),
+            "note": discovery.get("note", "búsqueda incompleta"),
+            "pages_checked": discovery.get("pages_checked"),
+        }
+        return False
+
+    candidate = discovery if discovery.get("product_url") else discovery.get("candidate")
+
+    if candidate:
+        new_entry = build_state_entry(
+            mode="discovered_product",
+            status=candidate["status"],
+            url=config["url"],
+            previous=previous,
+            product_url=candidate.get("product_url"),
+            product_name=candidate.get("product_name"),
+            price=candidate.get("price"),
+        )
+
+        print(
+            f"OP18_{store}: OP-18 encontrado → {new_entry['status']} "
+            f"[{discovery.get('via')} · pág. {discovery.get('pages_checked')}]"
+        )
+        run_results[key] = {
+            "connected": True,
+            "healthy": True,
+            "status": new_entry["status"],
+            "via": discovery.get("via", ""),
+            "price": new_entry.get("price"),
+            "pages_checked": discovery.get("pages_checked"),
+        }
+        return update_op18_state(state, store, new_entry)
+
+    new_entry = build_state_entry(
+        mode="discovery",
+        status="BUSCANDO",
+        url=config["url"],
+        previous=previous,
+    )
+
+    print(
+        f"OP18_{store}: BUSCANDO "
+        f"[{discovery.get('via')} · {discovery.get('pages_checked')} pág.]"
+    )
+    run_results[key] = {
+        "connected": True,
+        "healthy": True,
+        "status": "BUSCANDO",
+        "via": discovery.get("via", ""),
+        "pages_checked": discovery.get("pages_checked"),
+    }
+    return update_op18_state(state, store, new_entry)
+
+
 STATUS_LABELS = {
     "NO_DISPONIBLE": "sin stock",
     "DISPONIBLE": "DISPONIBLE",
@@ -1226,7 +1718,12 @@ def status_report_due(state):
 
 
 def build_status_report(results):
-    total = len(DIRECT_PRODUCTS) + len(DISCOVERY_PAGES)
+    total = (
+        len(DIRECT_PRODUCTS)
+        + len(DISCOVERY_PAGES)
+        + len(OP18_DIRECT_PRODUCTS)
+        + len(OP18_DISCOVERY_PAGES)
+    )
     healthy = sum(1 for item in results.values() if item.get("healthy"))
     connected = sum(1 for item in results.values() if item.get("connected"))
 
@@ -1243,9 +1740,14 @@ def build_status_report(results):
             f"{total - connected} no respondieron correctamente."
         )
 
-    lines = ["🩺 ESTADO MONITOR ONE PIECE EB-05", "", headline, ""]
+    lines = ["🩺 ESTADO MONITOR ONE PIECE EB-05 / OP-18", "", headline, ""]
 
-    ordered_stores = list(DIRECT_PRODUCTS.keys()) + list(DISCOVERY_PAGES.keys())
+    ordered_stores = (
+        list(DIRECT_PRODUCTS.keys())
+        + list(DISCOVERY_PAGES.keys())
+        + [f"OP18_{store}" for store in OP18_DIRECT_PRODUCTS]
+        + [f"OP18_{store}" for store in OP18_DISCOVERY_PAGES]
+    )
 
     for store in ordered_stores:
         item = results.get(store)
@@ -1534,6 +2036,29 @@ def main():
 
         for store, config in DISCOVERY_PAGES.items():
             if monitor_discovery_store(
+                session,
+                browser,
+                store,
+                config,
+                state,
+                run_results,
+            ):
+                changed = True
+
+        # OP-18 (The Dominance of God) — lanzamiento EN: 20/11/2026.
+        for store, url in OP18_DIRECT_PRODUCTS.items():
+            if monitor_op18_direct_store(
+                session,
+                browser,
+                store,
+                url,
+                state,
+                run_results,
+            ):
+                changed = True
+
+        for store, config in OP18_DISCOVERY_PAGES.items():
+            if monitor_op18_discovery_store(
                 session,
                 browser,
                 store,
