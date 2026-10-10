@@ -43,6 +43,47 @@
     "status": "BUSCANDO",
     "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece"
   },
+  "OP18_INGENIO_BCN": {
+    "last_changed": "2026-10-10T17:00:58+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://www.ingeniobcn.com/etiqueta-producto/one-piece/"
+  },
+  "OP18_KABURI": {
+    "last_changed": "2026-10-10T17:00:50+00:00",
+    "mode": "direct",
+    "price": "144,00 €",
+    "product_name": "buscar",
+    "product_url": "https://www.kaburi.es/One-Piece-Tcg-Op18-Booster-Box-Ingl%C3%A9s.html",
+    "status": "NO_DISPONIBLE",
+    "url": "https://www.kaburi.es/One-Piece-Tcg-Op18-Booster-Box-Ingl%C3%A9s.html"
+  },
+  "OP18_MATHOM": {
+    "last_changed": "2026-10-10T17:01:09+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://mathom.es/es/6900-one-piece-card-game"
+  },
+  "OP18_METROPOLIS_CENTER": {
+    "last_changed": "2026-10-10T17:01:07+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece"
+  },
+  "OP18_PAPER_DEALER": {
+    "last_changed": "2026-10-10T17:01:16+00:00",
+    "mode": "discovered_product",
+    "product_name": "OP-18: The Dominance of God Pre-order",
+    "product_url": "https://www.paperdealer.eu/collections/one-piece-op-18-the-dominance-of-god",
+    "status": "DESCONOCIDO",
+    "url": "https://www.paperdealer.eu/collections/one-piece-tcg"
+  },
+  "OP18_ZACATRUS": {
+    "last_changed": "2026-10-10T17:01:15+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece"
+  },
   "PAPER_DEALER": {
     "last_changed": "2026-09-30T16:37:48+00:00",
     "mode": "discovery",
