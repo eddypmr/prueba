@@ -1644,6 +1644,24 @@ def monitor_op18_discovery_store(session, browser, store, config, state, run_res
     candidate = discovery if discovery.get("product_url") else discovery.get("candidate")
 
     if candidate:
+        # Si el catálogo localiza la ficha pero no puede decidir el stock,
+        # abrimos esa ficha concreta y la analizamos como producto individual.
+        candidate_url = candidate.get("product_url")
+        if (
+            candidate.get("status") == "DESCONOCIDO"
+            and candidate_url
+            and candidate_url != config["url"]
+        ):
+            refined, refined_via, _ = analyze_known_op18_product(
+                session,
+                browser,
+                candidate_url,
+                force_browser=False,
+            )
+            if refined and refined.get("status") != "DESCONOCIDO":
+                candidate = refined
+                discovery["via"] = f"{discovery.get('via')} → {refined_via}"
+
         new_entry = build_state_entry(
             mode="discovered_product",
             status=candidate["status"],
@@ -2015,7 +2033,7 @@ def main():
     session = build_http_session()
     browser = BrowserFetcher()
 
-    print(f"=== EB-05 monitor | {utc_now()} ===")
+    print(f"=== One Piece monitor | EB-05 + OP-18 | {utc_now()} ===")
 
     try:
         if SEND_TEST_NOTIFICATION:
