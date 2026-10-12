@@ -1721,7 +1721,7 @@ STATUS_LABELS = {
     "NO_DISPONIBLE": "sin stock",
     "DISPONIBLE": "DISPONIBLE",
     "DESCONOCIDO": "estado no concluyente",
-    "BUSCANDO": "buscando EB-05",
+    "BUSCANDO": "buscando producto",
 }
 
 
@@ -1759,12 +1759,12 @@ def build_status_report(results):
         headline = "✅ Todo funciona correctamente y todas las páginas responden."
     elif connected == total:
         headline = (
-            f"⚠️ El monitor conecta con las {total} tiendas, "
-            f"pero {total - healthy} comprobación(es) no pudieron validarse del todo."
+            f"⚠️ El monitor completó las {total} comprobaciones, "
+            f"pero {total - healthy} no pudieron validarse del todo."
         )
     else:
         headline = (
-            f"⚠️ El monitor está activo. {connected}/{total} tiendas respondieron; "
+            f"⚠️ El monitor está activo. {connected}/{total} comprobaciones respondieron; "
             f"{total - connected} no respondieron correctamente."
         )
 
@@ -1785,7 +1785,11 @@ def build_status_report(results):
             continue
 
         if item.get("healthy"):
-            status = STATUS_LABELS.get(item.get("status"), item.get("status", "OK"))
+            raw_status = item.get("status")
+            if raw_status == "BUSCANDO":
+                status = "buscando OP-18" if store.startswith("OP18_") else "buscando EB-05"
+            else:
+                status = STATUS_LABELS.get(raw_status, raw_status or "OK")
             via = item.get("via", "")
             pages = item.get("pages_checked")
             pages_text = f" · {pages} pág." if pages and pages > 1 else ""
@@ -1956,11 +1960,21 @@ def monitor_discovery_store(session, browser, store, config, state, run_results)
             )
             run_results[store] = {
                 "connected": True,
-                "healthy": True,
+                "healthy": new_entry["status"] != "DESCONOCIDO",
                 "status": new_entry["status"],
                 "via": f"ficha directa · {via}",
                 "price": new_entry.get("price"),
+                "note": (
+                    "ficha accesible, pero el stock no es concluyente"
+                    if new_entry["status"] == "DESCONOCIDO"
+                    else ""
+                ),
             }
+
+            # Igual que con OP-18: una lectura no concluyente no sustituye un
+            # estado fiable anterior ni puede generar una falsa transición.
+            if new_entry["status"] == "DESCONOCIDO":
+                return False
 
             return update_store_state(state, store, new_entry)
 
@@ -2048,7 +2062,7 @@ def main():
     try:
         if SEND_TEST_NOTIFICATION:
             send_telegram(
-                "✅ Test correcto: el monitor EB-05 puede enviarte avisos por Telegram."
+                "✅ Test correcto: el monitor EB-05 / OP-18 puede enviarte avisos por Telegram."
             )
 
         for store, url in DIRECT_PRODUCTS.items():
