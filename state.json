@@ -44,6 +44,15 @@
     "status": "BUSCANDO",
     "url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece"
   },
+  "OP18_GAMERIA": {
+    "last_changed": "2026-10-13T04:31:55+00:00",
+    "mode": "direct",
+    "price": "60 €",
+    "product_name": "One Piece Card Game OP-18 Caja",
+    "product_url": "https://gameria.es/juegos-de-cartas/one-piece-card-game-op-18-caja-20293.html",
+    "status": "NO_DISPONIBLE",
+    "url": "https://gameria.es/juegos-de-cartas/one-piece-card-game-op-18-caja-20293.html"
+  },
   "OP18_INGENIO_BCN": {
     "last_changed": "2026-10-10T17:00:58+00:00",
     "mode": "discovery",
