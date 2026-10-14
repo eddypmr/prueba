@@ -17,7 +17,7 @@ from urllib3.util.retry import Retry
 
 STATE_FILE = Path("state.json")
 
-# Keepalive: sin cambios de lógica; valida el trigger por push del monitor.
+# Keepalive: monitor revisado y lógica sin cambios; fuerza una validación por push.
 
 
 USER_AGENT = (
