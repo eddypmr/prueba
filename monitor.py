@@ -974,17 +974,36 @@ def validate_catalog(html, text, config, final_url):
     return False, "respondió, pero no pude validar estructura de catálogo"
 
 
-def discover_eb05(session, browser, store, config):
+def discover_shared_catalog(session, browser, store, config, cache):
     """
-    Recorre la paginación real del catálogo hasta max_pages.
-    Si encuentra EB-05 devuelve su URL individual, nombre, precio y stock.
+    Descarga y valida una sola vez cada página del catálogo por ejecución.
+    Busca EB-05 y OP-18 sobre el mismo HTML, conservando un resultado
+    independiente por producto (incluidos errores y página del hallazgo).
     """
+    cache_key = (store, config["url"])
+    if cache_key in cache:
+        return cache[cache_key]
+
+    extractors = {
+        "EB05": extract_eb05_candidate,
+        "OP18": extract_op18_candidate,
+    }
+    pending = dict(extractors)
+    results = {}
     current_url = config["url"]
     visited = set()
     max_pages = config.get("max_pages", 8)
     force_browser = config.get("force_browser", False)
     pages_checked = 0
     last_via = ""
+
+    def finish_unresolved(result):
+        # Un error posterior no invalida una ficha encontrada en una página
+        # anterior; las búsquedas pendientes sí quedan marcadas incompletas.
+        for product in pending:
+            results[product] = dict(result)
+        cache[cache_key] = results
+        return results
 
     while current_url and current_url not in visited and pages_checked < max_pages:
         visited.add(current_url)
@@ -999,13 +1018,14 @@ def discover_eb05(session, browser, store, config):
         last_via = via
 
         if not html:
-            return {
+            return finish_unresolved({
                 "ok": False,
-                "connected": False if pages_checked == 1 else True,
+                "connected": pages_checked > 1,
                 "healthy": False,
                 "note": f"falló página {pages_checked} ({via})",
+                "via": via,
                 "pages_checked": pages_checked,
-            }
+            })
 
         text = visible_text(html)
         valid, problem = validate_catalog(
@@ -1027,7 +1047,6 @@ def discover_eb05(session, browser, store, config):
                 )
                 if browser_valid:
                     html = browser_html
-                    text = browser_text
                     via = browser_via
                     final_url = browser_final_url
                     valid = True
@@ -1035,175 +1054,78 @@ def discover_eb05(session, browser, store, config):
                 else:
                     problem = browser_problem
 
-        if not valid:
-            return {
-                "ok": False,
-                "connected": True,
-                "healthy": False,
-                "note": problem,
-                "via": via,
-                "pages_checked": pages_checked,
-            }
-
-        candidate = extract_eb05_candidate(html, final_url or current_url)
-        if candidate:
-            candidate.update(
-                {
-                    "ok": True,
-                    "connected": True,
-                    "healthy": True,
-                    "via": via,
-                    "pages_checked": pages_checked,
-                }
-            )
-            return candidate
-
-        next_url = find_next_page(html, final_url or current_url)
-        if not next_url or next_url in visited:
-            return {
-                "ok": True,
-                "connected": True,
-                "healthy": True,
-                "candidate": None,
-                "via": via,
-                "pages_checked": pages_checked,
-            }
-
-        current_url = next_url
-
-    # Si llegamos al límite con otra página pendiente, no afirmamos BUSCANDO
-    # como resultado completo: la exploración ha quedado incompleta.
-    if current_url and current_url not in visited:
-        return {
-            "ok": False,
-            "connected": True,
-            "healthy": False,
-            "note": f"límite de paginación alcanzado ({max_pages} páginas)",
-            "via": last_via,
-            "pages_checked": pages_checked,
-        }
-
-    return {
-        "ok": True,
-        "connected": True,
-        "healthy": True,
-        "candidate": None,
-        "via": last_via,
-        "pages_checked": pages_checked,
-    }
-
-
-def discover_op18(session, browser, store, config):
-    current_url = config["url"]
-    visited = set()
-    max_pages = config.get("max_pages", 8)
-    force_browser = config.get("force_browser", False)
-    pages_checked = 0
-    last_via = ""
-
-    while current_url and current_url not in visited and pages_checked < max_pages:
-        visited.add(current_url)
-        pages_checked += 1
-
-        html, via, final_url = get_html(
-            session,
-            browser,
-            current_url,
-            force_browser=force_browser,
-        )
         last_via = via
 
-        if not html:
-            return {
-                "ok": False,
-                "connected": False if pages_checked == 1 else True,
-                "healthy": False,
-                "note": f"falló página {pages_checked} ({via})",
-                "pages_checked": pages_checked,
-            }
-
-        text = visible_text(html)
-        valid, problem = validate_catalog(
-            html,
-            text,
-            config,
-            final_url or current_url,
-        )
-
-        if not valid and not via.startswith("Playwright"):
-            browser_html, browser_via, browser_final_url = browser.fetch(current_url)
-            if browser_html:
-                browser_text = visible_text(browser_html)
-                browser_valid, browser_problem = validate_catalog(
-                    browser_html,
-                    browser_text,
-                    config,
-                    browser_final_url or current_url,
-                )
-                if browser_valid:
-                    html = browser_html
-                    text = browser_text
-                    via = browser_via
-                    final_url = browser_final_url
-                    valid = True
-                    problem = None
-                else:
-                    problem = browser_problem
-
         if not valid:
-            return {
+            return finish_unresolved({
                 "ok": False,
                 "connected": True,
                 "healthy": False,
                 "note": problem,
                 "via": via,
                 "pages_checked": pages_checked,
-            }
+            })
 
-        candidate = extract_op18_candidate(html, final_url or current_url)
-        if candidate:
-            candidate.update(
-                {
+        page_url = final_url or current_url
+        for product, extractor in list(pending.items()):
+            candidate = extractor(html, page_url)
+            if candidate:
+                results[product] = {
+                    **candidate,
                     "ok": True,
                     "connected": True,
                     "healthy": True,
                     "via": via,
                     "pages_checked": pages_checked,
                 }
-            )
-            return candidate
+                del pending[product]
 
-        next_url = find_next_page(html, final_url or current_url)
+        if not pending:
+            cache[cache_key] = results
+            print(f"📚 {store}: catálogo compartido · {pages_checked} pág.")
+            return results
+
+        next_url = find_next_page(html, page_url)
         if not next_url or next_url in visited:
-            return {
+            print(f"📚 {store}: catálogo compartido · {pages_checked} pág.")
+            return finish_unresolved({
                 "ok": True,
                 "connected": True,
                 "healthy": True,
                 "candidate": None,
                 "via": via,
                 "pages_checked": pages_checked,
-            }
+            })
 
         current_url = next_url
 
     if current_url and current_url not in visited:
-        return {
+        return finish_unresolved({
             "ok": False,
             "connected": True,
             "healthy": False,
             "note": f"límite de paginación alcanzado ({max_pages} páginas)",
             "via": last_via,
             "pages_checked": pages_checked,
-        }
+        })
 
-    return {
+    return finish_unresolved({
         "ok": True,
         "connected": True,
         "healthy": True,
         "candidate": None,
         "via": last_via,
         "pages_checked": pages_checked,
-    }
+    })
+
+
+def discover_eb05(session, browser, store, config, cache):
+    # Resultado ya calculado junto con OP-18; no se vuelve a consultar la web.
+    return dict(discover_shared_catalog(session, browser, store, config, cache)["EB05"])
+
+
+def discover_op18(session, browser, store, config, cache):
+    return dict(discover_shared_catalog(session, browser, store, config, cache)["OP18"])
 
 
 def analyze_known_product(session, browser, url, force_browser=False):
@@ -1597,7 +1519,7 @@ def monitor_op18_direct_store(session, browser, store, url, state, run_results):
     return update_op18_state(state, store, new_entry)
 
 
-def monitor_op18_discovery_store(session, browser, store, config, state, run_results):
+def monitor_op18_discovery_store(session, browser, store, config, state, run_results, catalog_cache):
     key = f"OP18_{store}"
     previous = state.get(key, {})
 
@@ -1638,7 +1560,7 @@ def monitor_op18_discovery_store(session, browser, store, config, state, run_res
                 return False
             return update_op18_state(state, store, new_entry)
 
-    discovery = discover_op18(session, browser, store, config)
+    discovery = discover_op18(session, browser, store, config, catalog_cache)
 
     if not discovery.get("ok"):
         print(f"❓ OP18_{store}: {discovery.get('note')}")
@@ -1927,7 +1849,7 @@ def monitor_direct_store(session, browser, store, url, state, run_results):
     return update_store_state(state, store, new_entry)
 
 
-def monitor_discovery_store(session, browser, store, config, state, run_results):
+def monitor_discovery_store(session, browser, store, config, state, run_results, catalog_cache):
     previous = state.get(store, {})
 
     # Si en una ejecución anterior ya descubrimos la ficha concreta,
@@ -1983,7 +1905,7 @@ def monitor_discovery_store(session, browser, store, config, state, run_results)
             "se vuelve a recorrer el catálogo."
         )
 
-    discovery = discover_eb05(session, browser, store, config)
+    discovery = discover_eb05(session, browser, store, config, catalog_cache)
 
     if not discovery.get("ok"):
         print(f"❓ {store}: {discovery.get('note')}")
@@ -2054,6 +1976,7 @@ def main():
     state = load_state()
     changed = False
     run_results = {}
+    catalog_cache = {}  # Compartida por EB-05 y OP-18 en esta ejecución.
     session = build_http_session()
     browser = BrowserFetcher()
 
@@ -2084,6 +2007,7 @@ def main():
                 config,
                 state,
                 run_results,
+                catalog_cache,
             ):
                 changed = True
 
@@ -2107,6 +2031,7 @@ def main():
                 config,
                 state,
                 run_results,
+                catalog_cache,
             ):
                 changed = True
 
