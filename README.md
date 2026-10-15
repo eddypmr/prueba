@@ -104,3 +104,27 @@ El informe indica:
 La primera ejecución tras activar esta función envía un informe inmediatamente. Después se guarda `_meta.last_status_report` en `state.json` y no se vuelve a enviar hasta que hayan pasado 12 horas.
 
 Si Telegram falla al enviar el parte, el monitor no marca el informe como entregado y vuelve a intentarlo en la siguiente ejecución de 30 minutos.
+
+
+## Plan de mejoras acordado (octubre de 2026)
+
+Orden de trabajo: validar una fase en GitHub Actions antes de comenzar la siguiente.
+
+- [x] **Fase 1 — Catálogos compartidos EB-05 / OP-18**. Una sola descarga,
+  validación y paginación por tienda y ejecución; dos detectores independientes
+  sobre el mismo HTML. Validado en la ejecución #777 (2026-10-15).
+- [ ] **Fase 2 — Disponibilidad JSON-LD vinculada al producto correcto**.
+  Parsear objetos `Product` y sus `offers`, comprobando nombre/URL/SKU antes
+  de interpretar `InStock` o `OutOfStock`. **Esperar confirmación antes de implementar.**
+- [ ] **Refactor configurable por producto**. Eliminar la duplicación restante
+  entre EB-05 y OP-18 para añadir nuevos sets sin copiar funciones.
+- [ ] **Revisar periodicidad redundante de GitHub**. Cloudflare cada 30 minutos
+  como principal y cron nativo con menor frecuencia como respaldo.
+- [ ] **Evaluar consulta de Gameria desde Cloudflare**. Solo si ese origen puede
+  acceder a la tienda; no intentar saltarse controles ni reiterar peticiones bloqueadas.
+- [ ] **Alertas opcionales de precio**. Umbrales configurables y solo avisar de
+  stock confirmado a precio interesante.
+
+La fase 1 no modifica la estrategia de fichas directas, los avisos de Telegram
+ni la persistencia de `state.json`. La fase 2 se tratará como un cambio separado
+para poder validar los falsos positivos de disponibilidad por separado.
