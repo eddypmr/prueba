@@ -138,3 +138,25 @@ Las 12 pruebas de `tests/test_jsonld_stock.py` se ejecutan antes de cada
 monitorización con `python -m unittest discover -s tests -v`.
 Si fallan, GitHub Actions detiene esa ejecución antes del scraping; si pasan,
 el monitor continúa comprobando las tiendas con normalidad.
+
+
+## Alertas persistentes (fase 3)
+
+Las alertas importantes de EB-05 y OP-18, incluidos nuevos listados, se guardan
+primero en `state.json` bajo `_outbox`, cada una con ID de transición único.
+El workflow confirma el commit de ese estado **antes** de hacer la petición a
+Telegram. Solo cuando Telegram devuelve HTTP 200 y JSON `ok: true` se marca
+`sent_at` y se confirma el acuse en un segundo commit.
+
+Ante timeout, fallo HTTP, límite 429 o error de Telegram, el aviso no se marca
+como entregado. Se reintenta en una ejecución posterior (sin saturar la API).
+Los informes cada 12 horas pasan también por la cola. El test manual de Telegram
+continúa siendo un envío de prueba directo.
+
+**Límite:** un aviso puede repetirse si Telegram lo entrega pero se pierde el
+acuse antes de guardarse en GitHub (semántica *al menos una vez*). No se puede
+garantizar entrega si GitHub permanece inaccesible o si la detección del stock
+falla por bloqueo de la tienda.
+
+Las pruebas `tests/test_notification_outbox.py` verifican reintentos, fusión de
+estados, ausencia de duplicados en la cola y tratamiento de errores.

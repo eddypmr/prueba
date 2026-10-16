@@ -11,6 +11,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from notification_outbox import queue_alert, pending_report_exists, send_telegram
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -161,31 +162,6 @@ def save_state(state):
         json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-
-
-def send_telegram(message):
-    if not BOT_TOKEN or not CHAT_ID:
-        print("ℹ️ Telegram no configurado; aviso mostrado solo en logs.")
-        return False
-
-    endpoint = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    try:
-        response = requests.post(
-            endpoint,
-            data={
-                "chat_id": CHAT_ID,
-                "text": message,
-                "disable_web_page_preview": False,
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        print("📲 Aviso enviado por Telegram.")
-        return True
-    except Exception as exc:
-        print(f"⚠️ No se pudo enviar Telegram: {exc}")
-        return False
 
 
 def build_http_session():
@@ -1424,7 +1400,12 @@ def build_state_entry(
     return entry
 
 
-def notify_if_transition(store, previous, new_entry):
+def notify_if_transition(store, previous, new_entry, state):
+    def queue(message):
+        queue_alert(
+            state, "EB05_" + store, new_entry.get("last_changed"), message
+        )
+
     old_status = previous.get("status")
     new_status = new_entry.get("status")
     old_mode = previous.get("mode")
@@ -1444,14 +1425,14 @@ def notify_if_transition(store, previous, new_entry):
     # avisamos en lugar de convertirla silenciosamente en baseline.
     if not previous or old_status is None:
         if new_status == "DISPONIBLE":
-            send_telegram(
+            queue(
                 f"🚨 ONE PIECE EB-05 DISPONIBLE\n\n"
                 f"🏪 {store}\n"
                 f"✅ Primera lectura y ya hay señales de compra/stock."
                 f"{price_line}\n\n{url}"
             )
         elif new_mode == "discovered_product":
-            send_telegram(
+            queue(
                 f"🆕 EB-05 DETECTADO EN UNA TIENDA\n\n"
                 f"🏪 {store}\n"
                 f"Estado inicial: {new_status}"
@@ -1461,14 +1442,14 @@ def notify_if_transition(store, previous, new_entry):
 
     if product_appeared:
         if new_status == "DISPONIBLE":
-            send_telegram(
+            queue(
                 f"🚨 NUEVA FICHA EB-05 Y ESTÁ DISPONIBLE\n\n"
                 f"🏪 {store}\n"
                 f"✅ Se ha descubierto la ficha del producto y tiene señales de compra."
                 f"{price_line}\n\n{url}"
             )
         else:
-            send_telegram(
+            queue(
                 f"🆕 EB-05 HA APARECIDO EN UNA TIENDA\n\n"
                 f"🏪 {store}\n"
                 f"Estado detectado: {new_status}"
@@ -1480,7 +1461,7 @@ def notify_if_transition(store, previous, new_entry):
         return
 
     if new_status == "DISPONIBLE":
-        send_telegram(
+        queue(
             f"🚨 ONE PIECE EB-05 DISPONIBLE\n\n"
             f"🏪 {store}\n"
             f"✅ Se detectan señales de compra/stock."
@@ -1490,7 +1471,12 @@ def notify_if_transition(store, previous, new_entry):
     # DESCONOCIDO no genera alerta de reposición: evitamos falsos positivos.
 
 
-def notify_op18_transition(store, previous, new_entry):
+def notify_op18_transition(store, previous, new_entry, state):
+    def queue(message):
+        queue_alert(
+            state, "OP18_" + store, new_entry.get("last_changed"), message
+        )
+
     old_status = previous.get("status")
     new_status = new_entry.get("status")
     old_mode = previous.get("mode")
@@ -1508,14 +1494,14 @@ def notify_op18_transition(store, previous, new_entry):
 
     if not previous or old_status is None:
         if new_status == "DISPONIBLE":
-            send_telegram(
+            queue(
                 f"🚨 ONE PIECE OP-18 DISPONIBLE\n\n"
                 f"🏪 {store}\n"
                 f"✅ Primera lectura y ya hay señales de compra/stock."
                 f"{price_line}\n\n{url}"
             )
         elif new_mode == "discovered_product":
-            send_telegram(
+            queue(
                 f"🆕 OP-18 DETECTADO EN UNA TIENDA\n\n"
                 f"🏪 {store}\n"
                 f"Estado inicial: {new_status}"
@@ -1524,7 +1510,7 @@ def notify_op18_transition(store, previous, new_entry):
         return
 
     if product_appeared:
-        send_telegram(
+        queue(
             (
                 "🚨 NUEVA FICHA OP-18 Y ESTÁ DISPONIBLE"
                 if new_status == "DISPONIBLE"
@@ -1537,7 +1523,7 @@ def notify_op18_transition(store, previous, new_entry):
         return
 
     if old_status != new_status and new_status == "DISPONIBLE":
-        send_telegram(
+        queue(
             f"🚨 ONE PIECE OP-18 DISPONIBLE\n\n"
             f"🏪 {store}\n"
             f"✅ Se detectan señales de compra/stock."
@@ -1548,7 +1534,7 @@ def notify_op18_transition(store, previous, new_entry):
 def update_op18_state(state, store, new_entry):
     key = f"OP18_{store}"
     previous = state.get(key, {})
-    notify_op18_transition(store, previous, new_entry)
+    notify_op18_transition(store, previous, new_entry, state)
 
     if previous != new_entry:
         state[key] = new_entry
@@ -1832,7 +1818,7 @@ def build_status_report(results):
 
 def update_store_state(state, store, new_entry):
     previous = state.get(store, {})
-    notify_if_transition(store, previous, new_entry)
+    notify_if_transition(store, previous, new_entry, state)
 
     if previous != new_entry:
         state[store] = new_entry
@@ -2126,18 +2112,11 @@ def main():
             ):
                 changed = True
 
-        if status_report_due(state):
+        if status_report_due(state) and not pending_report_exists(state):
             report = build_status_report(run_results)
-            print("📋 Informe de estado periódico:")
-            print(report)
-
-            if send_telegram(report):
-                meta = state.setdefault("_meta", {})
-                meta["last_status_report"] = utc_now()
-                changed = True
-                print("✅ Informe periódico enviado y registrado.")
-            else:
-                print("⚠️ Informe periódico pendiente; se reintentará.")
+            print("📋 Informe periódico preparado y añadido a la cola.")
+            queue_alert(state, "status_report", utc_now(), report, kind="report")
+            changed = True
 
         save_state(state)
 

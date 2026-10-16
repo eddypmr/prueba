@@ -69,93 +69,21 @@ jobs:
           SEND_TEST_NOTIFICATION: ${{ github.event.inputs.send_test_notification || 'false' }}
         run: python monitor.py
 
-      - name: Persist monitor state when it changes
-        run: |
-          if git diff --quiet -- state.json; then
-            echo "No state changes to persist."
-            exit 0
-          fi
+      - name: Persist new stock states and pending alerts
+        id: persist_alerts
+        run: bash scripts/persist_state.sh
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      # Enviar SOLO después de guardar los eventos en GitHub. Si el push
+      # falla, NO se envía nada y el workflow queda marcado como error.
+      - name: Deliver queued Telegram notifications
+        id: deliver_alerts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python deliver_alerts.py
 
-          # Conservamos el estado generado por esta ejecución. Si main avanzó
-          # mientras corríamos, fusionamos state.json por timestamp en vez de
-          # hacer un rebase ciego que pueda producir conflictos.
-          cp state.json /tmp/local_state.json
-
-          for attempt in 1 2 3; do
-            git fetch origin main
-            git show origin/main:state.json > /tmp/remote_state.json 2>/dev/null || echo '{}' > /tmp/remote_state.json
-
-            python - <<'PY'
-          import json
-          from datetime import datetime
-          from pathlib import Path
-
-          local = json.loads(Path("/tmp/local_state.json").read_text(encoding="utf-8"))
-          remote = json.loads(Path("/tmp/remote_state.json").read_text(encoding="utf-8"))
-
-          def parse_ts(value):
-              if not value:
-                  return datetime.min
-              try:
-                  return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-              except Exception:
-                  return datetime.min
-
-          merged = dict(remote)
-
-          for key, local_value in local.items():
-              if key == "_meta":
-                  remote_meta = dict(remote.get("_meta", {}))
-                  local_meta = dict(local_value or {})
-                  for meta_key, meta_value in local_meta.items():
-                      if meta_key == "last_status_report":
-                          remote_value = remote_meta.get(meta_key)
-                          if parse_ts(meta_value) >= parse_ts(remote_value):
-                              remote_meta[meta_key] = meta_value
-                      else:
-                          remote_meta[meta_key] = meta_value
-                  merged["_meta"] = remote_meta
-                  continue
-
-              remote_value = remote.get(key)
-              if not isinstance(local_value, dict) or not isinstance(remote_value, dict):
-                  merged[key] = local_value
-                  continue
-
-              local_changed = parse_ts(local_value.get("last_changed"))
-              remote_changed = parse_ts(remote_value.get("last_changed"))
-
-              if local_changed >= remote_changed:
-                  merged[key] = local_value
-
-          Path("/tmp/merged_state.json").write_text(
-              json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-            git reset --hard origin/main
-            cp /tmp/merged_state.json state.json
-
-            if git diff --quiet -- state.json; then
-              echo "Remote state already contains these changes."
-              exit 0
-            fi
-
-            git add state.json
-            git commit -m "chore: update One Piece monitor state [skip ci]"
-
-            if git push origin HEAD:main; then
-              exit 0
-            fi
-
-            echo "Push race detected; merging the newest remote state and retrying ($attempt/3)."
-            cp state.json /tmp/local_state.json
-            sleep 2
-          done
-
-          echo "Could not persist state after 3 attempts."
-          exit 1
+      # Se ejecuta incluso si el despachador falla a mitad, para persistir
+      # los acuses confirmados y evitar duplicados en la próxima ejecución.
+      - name: Persist Telegram delivery acknowledgements
+        if: ${{ always() && steps.persist_alerts.outcome == 'success' }}
+        run: bash scripts/persist_state.sh
