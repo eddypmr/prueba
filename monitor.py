@@ -458,28 +458,118 @@ def looks_blocked(text):
     return any(re.search(pattern, text or "", re.I) for pattern in BLOCKED_PATTERNS)
 
 
-def structured_availability(html):
-    lower_html = (html or "").lower()
-
-    if re.search(
-        r'availability["\s:]+[^}]{0,180}(outofstock|soldout)',
-        lower_html,
-        re.I,
-    ):
-        return "NO_DISPONIBLE"
-
-    if re.search(
-        r'availability["\s:]+[^}]{0,180}instock',
-        lower_html,
-        re.I,
-    ):
-        return "DISPONIBLE"
-
-    return None
+def _jsonld_nodes(data):
+    """Recorre objetos JSON-LD, incluidos arrays y bloques @graph."""
+    if isinstance(data, list):
+        for item in data:
+            yield from _jsonld_nodes(item)
+    elif isinstance(data, dict):
+        yield data
+        for value in data.values():
+            if isinstance(value, (list, dict)):
+                yield from _jsonld_nodes(value)
 
 
-def detect_direct_status(html, text):
-    structured = structured_availability(html)
+def _jsonld_type_is(node, schema_type):
+    types = node.get("@type", [])
+    if not isinstance(types, list):
+        types = [types]
+    return any(
+        isinstance(kind, str)
+        and re.split(r"[/#]", kind.rstrip("/"))[-1].lower() == schema_type.lower()
+        for kind in types
+    )
+
+
+def _jsonld_identifier(value):
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return " ".join(_jsonld_identifier(item) for item in value)
+    if isinstance(value, dict):
+        return " ".join(
+            _jsonld_identifier(value[key])
+            for key in ("@id", "name", "url", "value")
+            if key in value
+        )
+    return ""
+
+
+def _jsonld_matches_product(node, product_code):
+    """
+    La identidad procede del propio objeto Product: nombre, SKU o URL.
+    Nunca inferimos el producto solo por la URL externa de la página.
+    """
+    if product_code not in {"EB05", "OP18"}:
+        return False
+
+    identity = " ".join(
+        _jsonld_identifier(node.get(key))
+        for key in ("name", "sku", "mpn", "productID", "url", "@id")
+    )
+
+    # Admitimos SKU como EB05_EN o OP18-DISPLAY sin confundir ambos sets.
+    eb05 = bool(re.search(r"(?<![a-z0-9])EB[\s_-]*0?5(?![a-z0-9])", identity, re.I))
+    op18 = bool(
+        re.search(r"(?<![a-z0-9])OP[\s_-]*0?18(?![a-z0-9])", identity, re.I)
+        or re.search(r"\bTHE[\s_-]+DOMINANCE[\s_-]+OF[\s_-]+GOD\b", identity, re.I)
+    )
+    if eb05 and op18:
+        return False
+    return eb05 if product_code == "EB05" else op18
+
+
+def _jsonld_offer_statuses(offers):
+    if isinstance(offers, list):
+        for offer in offers:
+            yield from _jsonld_offer_statuses(offer)
+    elif isinstance(offers, dict):
+        availability = offers.get("availability")
+        if isinstance(availability, dict):
+            availability = availability.get("@id") or availability.get("url")
+
+        if isinstance(availability, str):
+            value = re.split(r"[/#]", availability.rstrip("/"))[-1].lower()
+            if value in {"instock", "limitedavailability", "onlineonly"}:
+                yield "DISPONIBLE"
+            elif value in {"outofstock", "soldout", "discontinued"}:
+                yield "NO_DISPONIBLE"
+            # PreOrder, PreSale y BackOrder no prueban compra accionable.
+
+        if "offers" in offers:
+            yield from _jsonld_offer_statuses(offers["offers"])
+
+
+def structured_availability(html, product_code):
+    """
+    Lee ofertas solo de Product que coincide con EB-05 u OP-18.
+    Ante identidades ausentes, JSON inválido o señales contradictorias,
+    no afirma disponibilidad y cede el análisis al DOM.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    statuses = set()
+
+    for script in soup.select("script[type*='ld+json']"):
+        raw = (script.string or script.get_text() or "").strip()
+        if raw.startswith("<!--") and raw.endswith("-->"):
+            raw = raw[4:-3].strip()
+        try:
+            document = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+
+        for node in _jsonld_nodes(document):
+            if not _jsonld_type_is(node, "Product"):
+                continue
+            if not _jsonld_matches_product(node, product_code):
+                continue
+            statuses.update(_jsonld_offer_statuses(node.get("offers")))
+
+    return next(iter(statuses)) if len(statuses) == 1 else None
+
+
+def detect_direct_status(html, text, product_code=None):
+    structured = structured_availability(html, product_code) if product_code else None
 
     if structured:
         return structured
@@ -498,7 +588,7 @@ def detect_direct_status(html, text):
     return "DESCONOCIDO"
 
 
-def target_context_status(html, text):
+def target_context_status(html, text, product_code):
     """
     Resuelve el stock de una ficha individual conocida.
 
@@ -506,7 +596,7 @@ def target_context_status(html, text):
     como último fallback, porque ya sabemos que la URL corresponde a EB-05.
     En páginas de categoría NO se usa esta función.
     """
-    structured = structured_availability(html)
+    structured = structured_availability(html, product_code)
     if structured:
         return structured
 
@@ -591,8 +681,9 @@ def target_context_status(html, text):
             if not disabled and any(pattern.search(node_text) for pattern in BUY_PATTERNS):
                 return "DISPONIBLE"
 
-    # Segundo intento: una ventana amplia alrededor de cada aparición de EB-05.
-    for pattern in EB05_PATTERNS:
+    # Ventana contextual solo para el set solicitado.
+    target_patterns = EB05_PATTERNS if product_code == "EB05" else OP18_PATTERNS
+    for pattern in target_patterns:
         for match in pattern.finditer(text or ""):
             start = max(0, match.start() - 1800)
             end = min(len(text), match.end() + 3500)
@@ -721,7 +812,7 @@ def extract_eb05_candidate(html, page_url):
                 "product_url": product_url,
                 "product_name": text[:220] if text else "One Piece EB-05",
                 "price": extract_price(text),
-                "status": detect_direct_status(str(node), text),
+                "status": detect_direct_status(str(node), text, "EB05"),
                 "source_url": page_url,
             }
 
@@ -757,7 +848,7 @@ def extract_eb05_candidate(html, page_url):
             or block_text[:220]
             or "One Piece EB-05",
             "price": extract_price(block_text),
-            "status": detect_direct_status(block_html, block_text),
+            "status": detect_direct_status(block_html, block_text, "EB05"),
             "source_url": page_url,
         }
 
@@ -773,7 +864,7 @@ def extract_eb05_candidate(html, page_url):
                 "product_url": page_url,
                 "product_name": window[:220],
                 "price": extract_price(window),
-                "status": detect_direct_status(window, window),
+                "status": detect_direct_status(window, window, "EB05"),
                 "source_url": page_url,
             }
 
@@ -829,7 +920,7 @@ def extract_op18_candidate(html, page_url):
                 "product_url": product_url or page_url,
                 "product_name": text[:220] if text else "One Piece OP-18",
                 "price": extract_price(text),
-                "status": detect_direct_status(str(node), text),
+                "status": detect_direct_status(str(node), text, "OP18"),
                 "source_url": page_url,
             }
 
@@ -859,7 +950,7 @@ def extract_op18_candidate(html, page_url):
                 or block_text[:220]
                 or "One Piece OP-18",
                 "price": extract_price(block_text),
-                "status": detect_direct_status(str(parent), block_text),
+                "status": detect_direct_status(str(parent), block_text, "OP18"),
                 "source_url": page_url,
             }
 
@@ -869,7 +960,7 @@ def extract_op18_candidate(html, page_url):
             "product_url": page_url,
             "product_name": "One Piece OP-18",
             "price": extract_price(page_text),
-            "status": detect_direct_status(html, page_text),
+            "status": detect_direct_status(html, page_text, "OP18"),
             "source_url": page_url,
         }
 
@@ -1150,7 +1241,7 @@ def analyze_known_product(session, browser, url, force_browser=False):
         return None, f"{via}; contenido inesperado", final_url
 
     candidate = extract_eb05_candidate(html, final_url or url)
-    page_status = target_context_status(html, text)
+    page_status = target_context_status(html, text, "EB05")
 
     if candidate:
         # Para fichas conocidas damos prioridad a la disponibilidad de la
@@ -1237,7 +1328,7 @@ def analyze_known_op18_product(session, browser, url, force_browser=False):
         return None, f"{via}; contenido inesperado", final_url
 
     candidate = extract_op18_candidate(html, final_url or url)
-    page_status = target_context_status(html, text)
+    page_status = target_context_status(html, text, "OP18")
 
     if candidate:
         if page_status != "DESCONOCIDO":
