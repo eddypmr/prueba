@@ -113,9 +113,12 @@ Orden de trabajo: validar una fase en GitHub Actions antes de comenzar la siguie
 - [x] **Fase 1 — Catálogos compartidos EB-05 / OP-18**. Una sola descarga,
   validación y paginación por tienda y ejecución; dos detectores independientes
   sobre el mismo HTML. Validado en la ejecución #777 (2026-10-15).
-- [ ] **Fase 2 — Disponibilidad JSON-LD vinculada al producto correcto**.
-  Parsear objetos `Product` y sus `offers`, comprobando nombre/URL/SKU antes
-  de interpretar `InStock` o `OutOfStock`. **Esperar confirmación antes de implementar.**
+- [x] **Fase 2 — Disponibilidad JSON-LD vinculada al producto correcto**.
+  Se interpretan objetos `Product` y sus `offers` solo si nombre, URL,
+  SKU o identificador corresponden a EB-05 u OP-18. JSON malformado,
+  productos recomendados, estados ambiguos y preventas no generan
+  disponibilidad confirmada. Validada con 12 pruebas automáticas y en
+  la ejecución #826 (2026-10-16).
 - [ ] **Refactor configurable por producto**. Eliminar la duplicación restante
   entre EB-05 y OP-18 para añadir nuevos sets sin copiar funciones.
 - [ ] **Revisar periodicidad redundante de GitHub**. Cloudflare cada 30 minutos
@@ -128,3 +131,10 @@ Orden de trabajo: validar una fase en GitHub Actions antes de comenzar la siguie
 La fase 1 no modifica la estrategia de fichas directas, los avisos de Telegram
 ni la persistencia de `state.json`. La fase 2 se tratará como un cambio separado
 para poder validar los falsos positivos de disponibilidad por separado.
+
+### Validación automatizada de JSON-LD
+
+Las 12 pruebas de `tests/test_jsonld_stock.py` se ejecutan antes de cada
+monitorización con `python -m unittest discover -s tests -v`.
+Si fallan, GitHub Actions detiene esa ejecución antes del scraping; si pasan,
+el monitor continúa comprobando las tiendas con normalidad.
