@@ -977,6 +977,65 @@ def find_next_page(html, current_url):
     return None
 
 
+def catalog_evidence(html, text):
+    """
+    Señales independientes de contenido de catálogo. Una página con título
+    'One Piece' y HTTP 200 no prueba por sí sola que se hayan cargado productos.
+
+    Esta primera versión registra la calidad del catálogo sin rechazar
+    automáticamente tiendas con plantillas HTML no reconocidas.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    selectors = (
+        "li.product",
+        ".product-miniature",
+        ".js-product-miniature",
+        ".product-item",
+        ".product-card",
+        ".card-product",
+        ".woocommerce-loop-product",
+        "[itemtype*='schema.org/Product']",
+    )
+
+    # Evitamos contar varias veces la misma tarjeta por selectores solapados.
+    card_ids = set()
+    for selector in selectors:
+        for element in soup.select(selector):
+            if element.select_one("a[href]"):
+                card_ids.add(id(element))
+
+    empty_patterns = (
+        r"\bno\s+products?\s+(?:found|available)\b",
+        r"\bno\s+results?\s+found\b",
+        r"\bno\s+se\s+(?:han\s+)?encontrad[oa]s?\s+productos\b",
+        r"\bno\s+hay\s+productos\b",
+        r"\b(?:ning[uú]n|ninguno)\s+producto\b",
+        r"\bsin\s+resultados\b",
+    )
+    explicitly_empty = any(
+        re.search(pattern, text or "", re.I) for pattern in empty_patterns
+    )
+    pagination = bool(soup.select_one(
+        "nav.pagination, .pagination a[href], a[rel~='next']"
+    ))
+
+    if card_ids:
+        quality = "productos"
+    elif explicitly_empty:
+        quality = "vacío explícito"
+    elif pagination:
+        quality = "paginación sin tarjetas reconocidas"
+    else:
+        quality = "sin evidencia de productos"
+
+    return {
+        "quality": quality,
+        "product_cards": len(card_ids),
+        "explicitly_empty": explicitly_empty,
+        "has_pagination": pagination,
+    }
+
+
 def validate_catalog(html, text, config, final_url):
     if looks_blocked(text):
         return False, "página anti-bot/captcha"
@@ -1132,6 +1191,13 @@ def discover_shared_catalog(session, browser, store, config, cache):
                 "via": via,
                 "pages_checked": pages_checked,
             })
+
+        evidence = catalog_evidence(html, text)
+        print(
+            f"🔎 {store}: calidad catálogo pág. {pages_checked} → "
+            f"{evidence['quality']} "
+            f"(tarjetas={evidence['product_cards']})"
+        )
 
         page_url = final_url or current_url
         for product, extractor in list(pending.items()):
