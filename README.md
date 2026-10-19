@@ -175,3 +175,12 @@ falla por bloqueo de la tienda.
 
 Las pruebas `tests/test_notification_outbox.py` verifican reintentos, fusión de
 estados, ausencia de duplicados en la cola y tratamiento de errores.
+
+
+### Intento de recuperación de Metrópolis Center
+
+La tienda sigue bajo comprobación conservadora: cuando Playwright no ve tarjetas
+ni un mensaje de catálogo vacío, se intenta **una sola lectura HTTP** en la misma
+URL. Solo se acepta si ofrece productos verificables; en caso contrario queda
+`no verificable` y su último estado se conserva, sin inventar disponibilidad.
+No se modifica la forma en que se monitorizan las demás tiendas.

@@ -1194,6 +1194,52 @@ def discover_shared_catalog(session, browser, store, config, cache):
             })
 
         evidence = catalog_evidence(html, text)
+
+        # Algunas tiendas responden con un HTML distinto al navegador del
+        # runner. Solo en Metrópolis, intentamos HTTP convencional si el
+        # navegador NO ofrece tarjetas ni un catálogo vacío verificable.
+        # No confiamos en HTTP 200 por sí solo; exigimos contenido real.
+        if (
+            store == "METROPOLIS_CENTER"
+            and evidence["quality"] not in {"productos", "vacío explícito"}
+        ):
+            fallback_html, fallback_via, fallback_url = http_fetch(
+                session, current_url
+            )
+            if fallback_html:
+                fallback_text = visible_text(fallback_html)
+                fallback_valid, _ = validate_catalog(
+                    fallback_html, fallback_text, config,
+                    fallback_url or current_url,
+                )
+                fallback_evidence = catalog_evidence(
+                    fallback_html, fallback_text
+                )
+                if (
+                    fallback_valid
+                    and fallback_evidence["quality"]
+                    in {"productos", "vacío explícito"}
+                ):
+                    html = fallback_html
+                    text = fallback_text
+                    via = f"{fallback_via} (fallback tras Playwright)"
+                    final_url = fallback_url
+                    evidence = fallback_evidence
+                    print(
+                        "✅ METROPOLIS_CENTER: catálogo verificado "
+                        "mediante HTTP tras fallo de lectura en Playwright."
+                    )
+                else:
+                    print(
+                        "ℹ️ METROPOLIS_CENTER: HTTP alternativo tampoco "
+                        "demuestra que el catálogo haya cargado."
+                    )
+            else:
+                print(
+                    f"ℹ️ METROPOLIS_CENTER: HTTP alternativo sin respuesta "
+                    f"útil ({fallback_via})."
+                )
+
         if evidence["quality"] in {"productos", "vacío explícito"}:
             verified_listing = True
         print(

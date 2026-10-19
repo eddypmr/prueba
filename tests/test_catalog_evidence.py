@@ -88,5 +88,62 @@ class CatalogEvidenceTests(unittest.TestCase):
 
 
 
+    def test_metropolis_recovers_catalog_using_http_fallback(self):
+        from unittest.mock import patch
+        from monitor import discover_shared_catalog
+
+        config = {"url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece",
+                  "required_patterns": [r"one\s*piece"], "force_browser": True,
+                  "max_pages": 2}
+        browser_html = "<html><h1>One Piece</h1><p>Menu y categorías</p></html>"
+        http_html = (
+            "<html><h1>One Piece</h1>"
+            '<div class="product-item"><a href="/op-17">One Piece OP-17</a></div>'
+            "</html>"
+        )
+        with patch("monitor.get_html", return_value=(
+            browser_html, "Playwright/Chromium + DOM", config["url"]
+        )), patch("monitor.http_fetch", return_value=(
+            http_html, "HTTP 200", config["url"]
+        )) as http_mock:
+            result = discover_shared_catalog(None, None, "METROPOLIS_CENTER", config, {})
+        self.assertTrue(result["EB05"]["ok"])
+        self.assertTrue(result["OP18"]["ok"])
+        self.assertEqual(result["EB05"]["status"] if "status" in result["EB05"] else "BUSCANDO", "BUSCANDO")
+        self.assertIn("HTTP 200", result["OP18"]["via"])
+        http_mock.assert_called_once()
+
+    def test_metropolis_http_fallback_without_cards_stays_unverifiable(self):
+        from unittest.mock import patch
+        from monitor import discover_shared_catalog
+
+        config = {"url": "https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece",
+                  "required_patterns": [r"one\s*piece"], "force_browser": True,
+                  "max_pages": 2}
+        blank = "<html><h1>One Piece</h1><p>Solo navegación</p></html>"
+        with patch("monitor.get_html", return_value=(
+            blank, "Playwright/Chromium + DOM", config["url"]
+        )), patch("monitor.http_fetch", return_value=(
+            blank, "HTTP 200", config["url"]
+        )):
+            result = discover_shared_catalog(None, None, "METROPOLIS_CENTER", config, {})
+        self.assertFalse(result["EB05"]["ok"])
+        self.assertFalse(result["OP18"]["healthy"])
+
+    def test_other_stores_do_not_use_extra_http_fallback(self):
+        from unittest.mock import patch
+        from monitor import discover_shared_catalog
+
+        config = {"url": "https://example.org/one-piece", "max_pages": 1}
+        blank = "<html><h1>One Piece</h1></html>"
+        with patch("monitor.get_html", return_value=(
+            blank, "HTTP 200", config["url"]
+        )), patch("monitor.http_fetch") as http_mock:
+            result = discover_shared_catalog(None, None, "EXAMPLE", config, {})
+        http_mock.assert_not_called()
+        self.assertFalse(result["EB05"]["ok"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
