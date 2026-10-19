@@ -140,6 +140,21 @@ Si fallan, GitHub Actions detiene esa ejecución antes del scraping; si pasan,
 el monitor continúa comprobando las tiendas con normalidad.
 
 
+## Validación de catálogos (fase 4)
+
+- El monitor registra cuántas tarjetas reconocibles aparecen en cada página.
+- Un catálogo con productos visibles o mensaje explícito de catálogo vacío es
+  verificable; una página que solo responde HTTP 200 o menciona One Piece
+  **no** es suficiente.
+- Si todas sus páginas carecen de productos reconocibles y de mensaje de vacío,
+  la búsqueda aparece como **no verificable**, sin modificar el estado de stock
+  anterior ni generar avisos falsos.
+- Validado en GitHub Actions #993 (diagnóstico) y #994 (protección), con
+  33 pruebas automáticas correctas.
+- **Metrópolis Center:** actualmente responde sin tarjetas reconocibles
+  desde el runner. Requiere revisión del HTML/DOM de esa tienda; no se considera
+  una búsqueda de catálogo confirmada. Se mantienen los estados existentes.
+
 ## Alertas persistentes (fase 3)
 
 Las alertas importantes de EB-05 y OP-18, incluidos nuevos listados, se guardan
