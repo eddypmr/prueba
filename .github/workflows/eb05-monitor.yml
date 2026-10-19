@@ -2,9 +2,9 @@ name: One Piece Stock Monitor (EB-05 + OP-18)
 
 on:
   schedule:
-    # Redundancia cada 15 minutos para compensar retrasos/saltos del scheduler de GitHub.
-    # Evitamos 00/15/30/45, que suelen tener más carga.
-    - cron: "7,22,37,52 * * * *"
+    # Respaldo horario independiente de Cloudflare (principal: cada 30 min).
+    # Minuto 17 para evitar coincidir con las ejecuciones de las :00 y :30.
+    - cron: "17 * * * *"
 
   workflow_dispatch:
     inputs:
