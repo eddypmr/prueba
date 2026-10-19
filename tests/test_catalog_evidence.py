@@ -47,6 +47,46 @@ class CatalogEvidenceTests(unittest.TestCase):
         )
         self.assertFalse(valid)
 
+    def test_shared_catalog_rejects_weak_page(self):
+        from unittest.mock import patch
+        from monitor import discover_shared_catalog
+
+        html = "<html><h1>One Piece</h1><p>Información de la tienda</p></html>"
+        config = {"url": "https://example.org/one-piece",
+                  "required_patterns": [r"one\s*piece"], "max_pages": 2}
+        with patch("monitor.get_html", return_value=(html, "HTTP 200", config["url"])):
+            found = discover_shared_catalog(None, None, "EXAMPLE", config, {})
+        self.assertFalse(found["EB05"]["ok"])
+        self.assertFalse(found["OP18"]["ok"])
+        self.assertIn("sin tarjetas", found["EB05"]["note"])
+
+    def test_shared_catalog_accepts_real_product_cards(self):
+        from unittest.mock import patch
+        from monitor import discover_shared_catalog
+
+        html = ('<html><h1>One Piece</h1>'
+                '<li class="product"><a href="/op-03">One Piece OP-03</a></li></html>')
+        config = {"url": "https://example.org/one-piece",
+                  "required_patterns": [r"one\s*piece"], "max_pages": 2}
+        with patch("monitor.get_html", return_value=(html, "HTTP 200", config["url"])):
+            found = discover_shared_catalog(None, None, "EXAMPLE", config, {})
+        self.assertTrue(found["EB05"]["ok"])
+        self.assertTrue(found["OP18"]["ok"])
+        self.assertIsNone(found["EB05"]["candidate"])
+
+    def test_shared_catalog_accepts_explicit_empty_listing(self):
+        from unittest.mock import patch
+        from monitor import discover_shared_catalog
+
+        html = "<html><h1>One Piece</h1><p>No hay productos disponibles</p></html>"
+        config = {"url": "https://example.org/one-piece",
+                  "required_patterns": [r"one\s*piece"], "max_pages": 2}
+        with patch("monitor.get_html", return_value=(html, "HTTP 200", config["url"])):
+            found = discover_shared_catalog(None, None, "EXAMPLE", config, {})
+        self.assertTrue(found["EB05"]["ok"])
+        self.assertTrue(found["OP18"]["ok"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1122,6 +1122,7 @@ def discover_shared_catalog(session, browser, store, config, cache):
     force_browser = config.get("force_browser", False)
     pages_checked = 0
     last_via = ""
+    verified_listing = False
 
     def finish_unresolved(result):
         # Un error posterior no invalida una ficha encontrada en una página
@@ -1193,6 +1194,8 @@ def discover_shared_catalog(session, browser, store, config, cache):
             })
 
         evidence = catalog_evidence(html, text)
+        if evidence["quality"] in {"productos", "vacío explícito"}:
+            verified_listing = True
         print(
             f"🔎 {store}: calidad catálogo pág. {pages_checked} → "
             f"{evidence['quality']} "
@@ -1221,6 +1224,18 @@ def discover_shared_catalog(session, browser, store, config, cache):
         next_url = find_next_page(html, page_url)
         if not next_url or next_url in visited:
             print(f"📚 {store}: catálogo compartido · {pages_checked} pág.")
+            if not verified_listing:
+                # HTTP 200 + cabecera de One Piece no demuestran que el catálogo
+                # haya cargado. No sobrescribir BUSCANDO con un falso resultado sano.
+                print(f"⚠️ {store}: catálogo sin estructura de productos verificable.")
+                return finish_unresolved({
+                    "ok": False,
+                    "connected": True,
+                    "healthy": False,
+                    "note": "catálogo sin tarjetas de producto ni mensaje claro de vacío",
+                    "via": via,
+                    "pages_checked": pages_checked,
+                })
             return finish_unresolved({
                 "ok": True,
                 "connected": True,
