@@ -11,10 +11,11 @@ Monitor automático ejecutado con GitHub Actions con intentos cada 15 minutos pa
 
 ### Descubrimiento de nueva ficha/listado
 - inGenio BCN Games
-- Metrópolis Center
 - Mathom
 - Zacatrus
 - Paper Dealer
+
+Metrópolis Center se revisa manualmente (ver la sección específica más abajo).
 
 Metrópolis Center se comprueba con Chromium + Playwright. Las demás tiendas intentan HTTP normal y, si falla, usan Playwright como fallback.
 
