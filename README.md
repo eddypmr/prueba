@@ -177,10 +177,16 @@ Las pruebas `tests/test_notification_outbox.py` verifican reintentos, fusión de
 estados, ausencia de duplicados en la cola y tratamiento de errores.
 
 
-### Intento de recuperación de Metrópolis Center
+### Metrópolis Center: revisión manual
 
-La tienda sigue bajo comprobación conservadora: cuando Playwright no ve tarjetas
-ni un mensaje de catálogo vacío, se intenta **una sola lectura HTTP** en la misma
-URL. Solo se acepta si ofrece productos verificables; en caso contrario queda
-`no verificable` y su último estado se conserva, sin inventar disponibilidad.
-No se modifica la forma en que se monitorizan las demás tiendas.
+Se intentó comprobar el catálogo mediante Playwright y también mediante HTTP
+convencional. En GitHub Actions la consulta HTTP devolvió **403** y Chromium
+mostró una página sin tarjetas verificables (ejecución #996, 2026-10-19).
+
+De acuerdo con la preferencia del usuario, **Metrópolis Center queda fuera de
+las comprobaciones programadas de EB-05 y OP-18**. Los últimos estados
+históricos de `state.json` se conservan sin modificación, pero ya no se
+consideran comprobaciones actuales. Se revisará manualmente la tienda en:
+https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece
+
+Las demás tiendas, pruebas automáticas y avisos de Telegram siguen activos.
