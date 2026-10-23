@@ -18,7 +18,7 @@ from urllib3.util.retry import Retry
 
 STATE_FILE = Path("state.json")
 
-# Keepalive: monitor revisado y lógica sin cambios; fuerza una validación por push.
+# Keepalive 2026-10-23: revisión de salud; sin cambios en detección, Telegram ni cron.
 
 
 USER_AGENT = (
