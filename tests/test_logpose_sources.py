@@ -11,7 +11,7 @@ HTML = """
  <span>Disponible · en 4 tiendas</span></article>
  <article><a href="/producto/431">EB-05 · JP Extra Booster Box: Heroines EB-05 JP</a></article>
  <article><a href="/producto/432">EB-05 · EN Extra Booster Pack EB-05 EN</a></article>
- <article><a href="/producto/470">OP-18 · EN Booster Box: The Dominance of God OP-18 EN</a>
+ <article><a href="/producto/453">OP-18 · EN Booster Box: The Dominance of God OP-18 EN</a>
  <span>Agotado en todas · en 6 tiendas</span></article>
 </main></body></html>
 """
@@ -48,6 +48,17 @@ class LogposeSourcesTests(unittest.TestCase):
         products = parse_comparator(html, "EB-05")
         self.assertEqual([p["url"] for p in products],
                          ["https://tcglogpose.com/producto/429"])
+
+    def test_op18_sibling_pack_url_cannot_be_selected_as_box(self):
+        html = ('<article><a href="/producto/452">'
+                'OP-18 EN Booster Box (24 sobres) OP-18 EN'
+                '</a></article>'
+                '<article><a href="/producto/453">'
+                'OP-18 EN Booster Box OP-18 EN'
+                '</a></article>')
+        products = parse_comparator(html, "OP-18")
+        self.assertEqual([p["url"] for p in products],
+                         ["https://tcglogpose.com/producto/453"])
 
     def test_ignores_off_domain_product_link(self):
         html = '<a href="https://phishing.test/producto/499">EB-05 · EN Booster Box EB-05 EN</a>'
