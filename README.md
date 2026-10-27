@@ -1,6 +1,6 @@
 # One Piece EB-05 Stock Monitor
 
-Monitor automático ejecutado con GitHub Actions con intentos cada 15 minutos para compensar retrasos o ejecuciones omitidas del scheduler.
+Monitor de cajas inglesas precintadas EB-05 / OP-18. Cloudflare invoca GitHub Actions cada 30 minutos y el cron nativo de GitHub es un respaldo horario.
 
 ## Qué vigila
 
@@ -17,14 +17,14 @@ Monitor automático ejecutado con GitHub Actions con intentos cada 15 minutos pa
 
 Metrópolis Center se revisa manualmente (ver la sección específica más abajo).
 
-Metrópolis Center se comprueba con Chromium + Playwright. Las demás tiendas intentan HTTP normal y, si falla, usan Playwright como fallback.
+Metrópolis Center está excluida del scraping y se revisa manualmente. Las demás tiendas intentan HTTP normal y, si falla, pueden usar Playwright.
 
 ## Frecuencia
 
-El workflow intenta correr en los minutos **07, 22, 37 y 52 de cada hora**:
+Cloudflare activa comprobaciones cada **30 minutos**. GitHub mantiene un cron de respaldo en el minuto 17 de cada hora (puede retrasarse):
 
 ```
-7,22,37,52 * * * *
+17 * * * *
 ```
 
 También puede ejecutarse manualmente desde:
@@ -122,7 +122,7 @@ Orden de trabajo: validar una fase en GitHub Actions antes de comenzar la siguie
   la ejecución #826 (2026-10-16).
 - [ ] **Refactor configurable por producto**. Eliminar la duplicación restante
   entre EB-05 y OP-18 para añadir nuevos sets sin copiar funciones.
-- [ ] **Revisar periodicidad redundante de GitHub**. Cloudflare cada 30 minutos
+- [x] **Revisar periodicidad redundante de GitHub**. Cloudflare cada 30 minutos
   como principal y cron nativo con menor frecuencia como respaldo.
 - [ ] **Evaluar consulta de Gameria desde Cloudflare**. Solo si ese origen puede
   acceder a la tienda; no intentar saltarse controles ni reiterar peticiones bloqueadas.
@@ -191,3 +191,12 @@ consideran comprobaciones actuales. Se revisará manualmente la tienda en:
 https://metropolis-center.com/es/catalogo/juegos-de-cartas/one-piece
 
 Las demás tiendas, pruebas automáticas y avisos de Telegram siguen activos.
+
+
+## Guardas para cajas inglesas y tiendas candidatas (27/10/2026)
+
+- La detección en catálogos exige referencias de **EB-05 u OP-18**, idioma **inglés** y formato **Booster Box / Display**. Rechaza japonés, singles, cases, displays de 12 y desprecintados; cuando no hay pruebas suficientes de identidad, **no afirma disponibilidad**.
+- En fichas individuales, `PREORDER` o `Disponibilidad: RESERVA` prevalece sobre textos como «En stock» o botones de compra. El estado `PREVENTA` **no emite alertas de stock inmediato**.
+- **Turol Games** (EB-05 y OP-18) y **Bandua Wargames** (EB-05) quedan en **modo diagnóstico de solo lectura**. Se consulta su ficha por HTTP, se imprime `DIAG_...` en Actions y no se modifican ni `state.json` ni la cola de Telegram. Requieren validar selectores propios para activar notificaciones.
+- Las páginas candidatas pueden mostrar todas las etiquetas de disponibilidad a la vez (Turol) o «PREORDER» + «En stock» (Bandua). No interpretar esas palabras aisladas como stock confirmado.
+- Para habilitar estas tiendas como alertas reales: verificar HTML servido al runner, identificar elementos de disponibilidad específicos, añadir casos de prueba y validar las transiciones reales; **no hacerlo simplemente copiando sus URL a `DIRECT_PRODUCTS`**.

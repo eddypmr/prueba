@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from notification_outbox import queue_alert, pending_report_exists, send_telegram
 from product_guard import guarded_stock, is_english_display, preorder_marker
+from diagnose_sources import run_diagnostics
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -2180,6 +2181,10 @@ def main():
                 catalog_cache,
             ):
                 changed = True
+
+        # Estos vendedores son candidatos: nunca modifican state.json
+        # ni envían avisos mientras no tengan un parser de stock validado.
+        run_diagnostics(session)
 
         if status_report_due(state) and not pending_report_exists(state):
             report = build_status_report(run_results)
