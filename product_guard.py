@@ -19,7 +19,7 @@ BOX = re.compile(
     r"extra[\s_-]*booster[\s_-]*display|display|"
     r"caja\s*(?:de\s*)?24\s*(?:sobres?|packs?))\b", re.I
 )
-OTHER_PACK = re.compile(r"\b(?:6|8|10|12|18|36)\s*(?:sobres?|packs?|boosters?)\b", re.I)
+OTHER_PACK = re.compile(r"(?<![a-z0-9_-])(?:6|8|10|12|18|36)\s*(?:sobres?|packs?|boosters?)\b", re.I)
 PREORDER = re.compile(r"\b(?:pre[\s-]?order|preventa|pre[\s-]?venta|"
                       r"reserva(?:r|da|do)?|pr[eé][\s-]?commande)\b", re.I)
 
