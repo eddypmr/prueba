@@ -21,6 +21,9 @@ on:
       - main
     paths:
       - "monitor.py"
+      - "product_guard.py"
+      - "diagnose_sources.py"
+      - "tests/**"
       - "requirements.txt"
       - ".github/workflows/eb05-monitor.yml"
 
