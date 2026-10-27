@@ -2,6 +2,7 @@
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from product_guard import direct_page_identity, is_english_display, preorder_marker
+from logpose_sources import run_comparator_checks
 
 DIAGNOSTIC_TARGETS = {
     "TUROL_EB05": {
@@ -61,3 +62,5 @@ def run_diagnostics(session):
             print(f"🧪 DIAG_{name}: PAUSADO (HTTP 202 desde GitHub; revisión manual)")
             continue
         diagnostic_check(session, name, config)
+    # Comparador adicional EB-05 / OP-18. No escribe estado ni envía alertas.
+    run_comparator_checks(session)

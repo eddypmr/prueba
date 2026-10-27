@@ -200,3 +200,10 @@ Las demás tiendas, pruebas automáticas y avisos de Telegram siguen activos.
 - **Turol Games** (EB-05 y OP-18) y **Bandua Wargames** (EB-05) quedan en **modo diagnóstico de solo lectura**. Se han probado sus fichas por HTTP sin modificar `state.json` ni Telegram. **Turol EB-05 y OP-18 quedaron pausados** porque GitHub devolvió HTTP 202; no se repite la petición bloqueada cada 30 minutos. **Bandua EB-05 continúa en diagnóstico**, devolviendo `PREVENTA` por su etiqueta PREORDER aunque aparezca «En stock». Requieren validación adicional antes de activar notificaciones.
 - Las páginas candidatas pueden mostrar todas las etiquetas de disponibilidad a la vez (Turol) o «PREORDER» + «En stock» (Bandua). No interpretar esas palabras aisladas como stock confirmado.
 - Para habilitar estas tiendas como alertas reales: verificar HTML servido al runner, identificar elementos de disponibilidad específicos, añadir casos de prueba y validar las transiciones reales; **no hacerlo simplemente copiando sus URL a `DIRECT_PRODUCTS`**.
+
+
+## LOGPOSE: comparador español (EB-05 y OP-18)
+
+El bot consulta `https://tcglogpose.com/buscar?setCode=EB-05` y `https://tcglogpose.com/buscar?setCode=OP-18` como **fuente de diagnóstico adicional**. Solo busca Booster Boxes en inglés, excluyendo sobres, cajas japonesas y cases. La palabra «Disponible» del comparador **no confirma stock inmediato**: puede incluir preventas y los datos se actualizan varias veces al día.
+
+Las consultas a LOGPOSE se registran como `LOGPOSE_EB05` y `LOGPOSE_OP18` en el log. Si el HTML no permite reconocer de forma fiable la caja, se declara **no verificable** y no se inventa disponibilidad. De momento no genera avisos en Telegram ni modifica `state.json`. Para seguir otros sets (por ejemplo, OP-19), añadir la referencia a `WATCHED_SETS` en `logpose_sources.py` y verificar los resultados reales.
