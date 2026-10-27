@@ -12,6 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from notification_outbox import queue_alert, pending_report_exists, send_telegram
+from product_guard import guarded_stock, is_english_display, preorder_marker
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -777,7 +778,7 @@ def extract_eb05_candidate(html, page_url):
                 for a in node.find_all("a", href=True)
             )
 
-            if not has_eb05(f"{text} {hrefs}"):
+            if not is_english_display(f"{text} {hrefs}", "EB05"):
                 continue
 
             product_url = best_product_link(node, page_url) or page_url
@@ -785,7 +786,7 @@ def extract_eb05_candidate(html, page_url):
                 "product_url": product_url,
                 "product_name": text[:220] if text else "One Piece EB-05",
                 "price": extract_price(text),
-                "status": detect_direct_status(str(node), text, "EB05"),
+                "status": ("PREVENTA" if preorder_marker(str(node), text) else detect_direct_status(str(node), text, "EB05")),
                 "source_url": page_url,
             }
 
@@ -801,7 +802,7 @@ def extract_eb05_candidate(html, page_url):
             ]
         )
 
-        if not has_eb05(descriptor) or not same_site(page_url, href):
+        if not is_english_display(descriptor, "EB05") or not same_site(page_url, href):
             continue
 
         parent = anchor
@@ -825,22 +826,7 @@ def extract_eb05_candidate(html, page_url):
             "source_url": page_url,
         }
 
-    # Último fallback: detectamos el texto y devolvemos la propia página.
-    page_text = visible_text(html)
-    for pattern in EB05_PATTERNS:
-        match = pattern.search(page_text)
-        if match:
-            start = max(0, match.start() - 550)
-            end = min(len(page_text), match.end() + 650)
-            window = page_text[start:end]
-            return {
-                "product_url": page_url,
-                "product_name": window[:220],
-                "price": extract_price(window),
-                "status": detect_direct_status(window, window, "EB05"),
-                "source_url": page_url,
-            }
-
+    # No inferir EB-05 desde texto genérico de una categoría.
     return None
 
 
@@ -865,7 +851,7 @@ def extract_op18_candidate(html, page_url):
                 for a in node.find_all("a", href=True)
             )
 
-            if not has_op18(f"{text} {hrefs}"):
+            if not is_english_display(f"{text} {hrefs}", "OP18"):
                 continue
 
             product_url = None
@@ -893,7 +879,7 @@ def extract_op18_candidate(html, page_url):
                 "product_url": product_url or page_url,
                 "product_name": text[:220] if text else "One Piece OP-18",
                 "price": extract_price(text),
-                "status": detect_direct_status(str(node), text, "OP18"),
+                "status": ("PREVENTA" if preorder_marker(str(node), text) else detect_direct_status(str(node), text, "OP18")),
                 "source_url": page_url,
             }
 
@@ -906,7 +892,7 @@ def extract_op18_candidate(html, page_url):
                 href,
             ]
         )
-        if has_op18(descriptor) and same_site(page_url, href):
+        if is_english_display(descriptor, "OP18") and same_site(page_url, href):
             parent = anchor
             for _ in range(4):
                 if not getattr(parent, "parent", None):
@@ -927,16 +913,7 @@ def extract_op18_candidate(html, page_url):
                 "source_url": page_url,
             }
 
-    page_text = visible_text(html)
-    if has_op18(page_text):
-        return {
-            "product_url": page_url,
-            "product_name": "One Piece OP-18",
-            "price": extract_price(page_text),
-            "status": detect_direct_status(html, page_text, "OP18"),
-            "source_url": page_url,
-        }
-
+    # No inferir OP-18 desde banners o contenido de otros productos.
     return None
 
 
@@ -1295,14 +1272,16 @@ def analyze_known_product(session, browser, url, force_browser=False):
         return None, f"{via}; contenido inesperado", final_url
 
     candidate = extract_eb05_candidate(html, final_url or url)
-    page_status = target_context_status(html, text, "EB05")
+    page_status = guarded_stock(
+        html, text, final_url or url, "EB05",
+        target_context_status(html, text, "EB05"),
+    )
 
     if candidate:
         # Para fichas conocidas damos prioridad a la disponibilidad de la
         # propia página (JSON-LD / contexto EB-05) sobre una tarjeta/anchor
         # demasiado estrecha.
-        if page_status != "DESCONOCIDO":
-            candidate["status"] = page_status
+        candidate["status"] = page_status
         if not candidate.get("price"):
             candidate["price"] = extract_price(text)
 
@@ -1325,10 +1304,15 @@ def analyze_known_product(session, browser, url, force_browser=False):
         reader_text,
         final_url or url,
     )
-    if reader_candidate:
-        return reader_candidate, f"{via} + {reader_via}", final_url
+    if reader_candidate and page_status not in {"PREVENTA"} and is_english_display(final_url or url, "EB05"):
+        if page_status == "DESCONOCIDO" and reader_candidate["status"] == "DISPONIBLE":
+            pass  # Reader sin control de compra no confirma stock.
+        else:
+            reader_candidate["status"] = page_status if page_status != "DESCONOCIDO" else reader_candidate["status"]
+            return reader_candidate, f"{via} + {reader_via}", final_url
 
     if candidate:
+        candidate["status"] = page_status
         return candidate, via, final_url
 
     return {
@@ -1382,11 +1366,13 @@ def analyze_known_op18_product(session, browser, url, force_browser=False):
         return None, f"{via}; contenido inesperado", final_url
 
     candidate = extract_op18_candidate(html, final_url or url)
-    page_status = target_context_status(html, text, "OP18")
+    page_status = guarded_stock(
+        html, text, final_url or url, "OP18",
+        target_context_status(html, text, "OP18"),
+    )
 
     if candidate:
-        if page_status != "DESCONOCIDO":
-            candidate["status"] = page_status
+        candidate["status"] = page_status
         if not candidate.get("price"):
             candidate["price"] = extract_price(text)
 
@@ -1509,7 +1495,7 @@ def notify_if_transition(store, previous, new_entry, state):
                 f"✅ Primera lectura y ya hay señales de compra/stock."
                 f"{price_line}\n\n{url}"
             )
-        elif new_mode == "discovered_product":
+        elif new_mode == "discovered_product" and new_status != "PREVENTA":
             queue(
                 f"🆕 EB-05 DETECTADO EN UNA TIENDA\n\n"
                 f"🏪 {store}\n"
@@ -1519,6 +1505,8 @@ def notify_if_transition(store, previous, new_entry, state):
         return
 
     if product_appeared:
+        if new_status == "PREVENTA":
+            return
         if new_status == "DISPONIBLE":
             queue(
                 f"🚨 NUEVA FICHA EB-05 Y ESTÁ DISPONIBLE\n\n"
@@ -1578,7 +1566,7 @@ def notify_op18_transition(store, previous, new_entry, state):
                 f"✅ Primera lectura y ya hay señales de compra/stock."
                 f"{price_line}\n\n{url}"
             )
-        elif new_mode == "discovered_product":
+        elif new_mode == "discovered_product" and new_status != "PREVENTA":
             queue(
                 f"🆕 OP-18 DETECTADO EN UNA TIENDA\n\n"
                 f"🏪 {store}\n"
@@ -1588,6 +1576,8 @@ def notify_op18_transition(store, previous, new_entry, state):
         return
 
     if product_appeared:
+        if new_status == "PREVENTA":
+            return
         queue(
             (
                 "🚨 NUEVA FICHA OP-18 Y ESTÁ DISPONIBLE"
@@ -1798,6 +1788,7 @@ STATUS_LABELS = {
     "NO_DISPONIBLE": "sin stock",
     "DISPONIBLE": "DISPONIBLE",
     "DESCONOCIDO": "estado no concluyente",
+    "PREVENTA": "preventa / reserva",
     "BUSCANDO": "buscando producto",
 }
 
