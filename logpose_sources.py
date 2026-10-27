@@ -14,6 +14,12 @@ WATCHED_SETS = {
     "EB05": "EB-05",
     "OP18": "OP-18",
 }
+# Fichas identificadas de BOOSTER BOX EN, no sobres, cajas JP ni cases:
+# EB-05: /428 sobre, /429 box EN, /430 case EN, /431 box JP.
+# OP-18: /452 sobre, /453 box EN (según el orden del listado).
+# El identificador debe verificarse en el HTML real antes de añadir otro set.
+WATCHED_PRODUCT_PATHS = {"EB-05": "/producto/429", "OP-18": "/producto/453"}
+
 CODE_RE = re.compile(r"\b(?:EB|OP)[-_ ]?0?\d{1,2}\b", re.I)
 DISPLAY_RE = re.compile(r"(?:extra\s+)?booster\s+box|booster\s+display", re.I)
 CASE_RE = re.compile(r"\bbox\s+case\b|\bcase\b", re.I)
@@ -43,6 +49,9 @@ def parse_comparator(html, expected_code):
             continue
         if not PRODUCT_HREF_RE.match(parsed.path):
             continue
+        if parsed.path.rstrip("/") != WATCHED_PRODUCT_PATHS.get(expected_code):
+            # Evita tarjetas cuyo texto mezcla otras variantes o accesorios.
+            continue
         if absolute in visited:
             continue
         visited.add(absolute)
@@ -68,13 +77,9 @@ def parse_comparator(html, expected_code):
             if "Disponible" in parent_text or "Agotado" in parent_text:
                 break
         card_text = card.get_text(" ", strip=True)
-        status = (
-            "LISTADO_COMPARADOR"
-            if re.search(r"\bDisponible\b", card_text, re.I)
-            else "AGOTADO_EN_COMPARADOR"
-            if re.search(r"\bAgotado", card_text, re.I)
-            else "SIN_DATOS_DE_STOCK"
-        )
+        # El catálogo puede mostrar preventas como disponibles y combinar
+        # etiquetas de tarjetas adyacentes. Nunca inferir stock desde aquí.
+        status = "LISTADO_COMPARADOR"
         price = PRICE_RE.search(card_text)
         found.append({
             "name": label[:200],

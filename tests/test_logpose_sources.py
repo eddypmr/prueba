@@ -36,7 +36,18 @@ class LogposeSourcesTests(unittest.TestCase):
 
     def test_op18_separate(self):
         item = parse_comparator(HTML, "OP-18")[0]
-        self.assertEqual(item["status"], "AGOTADO_EN_COMPARADOR")
+        self.assertEqual(item["status"], "LISTADO_COMPARADOR")
+
+    def test_misleading_sibling_card_cannot_be_selected(self):
+        html = ('<article><a href="/producto/428">'
+                'EB-05 EN Extra Booster Box (24 sobres) EB-05 EN'
+                '</a></article>'
+                '<article><a href="/producto/429">'
+                'EB-05 EN Extra Booster Box EB-05 EN'
+                '</a></article>')
+        products = parse_comparator(html, "EB-05")
+        self.assertEqual([p["url"] for p in products],
+                         ["https://tcglogpose.com/producto/429"])
 
     def test_ignores_off_domain_product_link(self):
         html = '<a href="https://phishing.test/producto/499">EB-05 · EN Booster Box EB-05 EN</a>'
