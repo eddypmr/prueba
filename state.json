@@ -246,6 +246,14 @@
       "sent_at": "2026-10-17T02:31:24+00:00",
       "source": "status_report"
     },
+    "b054afc41846d86d1ff42c9b9a79e228": {
+      "attempts": 0,
+      "created_at": "2026-10-27T08:32:02+00:00",
+      "kind": "report",
+      "message": "🩺 ESTADO MONITOR ONE PIECE EB-05 / OP-18\n\n⚠️ El monitor está activo. 11/13 comprobaciones respondieron; 2 no respondieron correctamente.\n\n✅ GARHIS — sin stock · 129,95 € · Playwright/Chromium + DOM + Jina Reader (fresh)\n✅ KABURI — sin stock · 240,00 € · HTTP 200\n❌ GAMERIA — Gameria no es accesible desde GitHub Actions\n✅ INGENIO_BCN — buscando EB-05 · 6 pág. · HTTP 200\n✅ MATHOM — buscando EB-05 · HTTP 200\n✅ ZACATRUS — buscando EB-05 · 4 pág. · HTTP 200\n✅ PAPER_DEALER — buscando EB-05 · HTTP 200\n✅ OP18_KABURI — sin stock · 144,00 € · HTTP 200\n❌ OP18_GAMERIA — no respondió o contenido inesperado (Playwright error: Page.goto: net::ERR_HTTP2_PROTOCOL_ERROR at https://gameria.es/juegos-de-cartas/one-piece-card-game-op-18-caja-20293.html\nCall log:\n  - navigating to \"https://gameria.es/juegos-de-cartas/one-piece-card-game-op-18-caja-20293.html\", waiting until \"domcontentloaded\"\n)\n✅ OP18_INGENIO_BCN — buscando OP-18 · 6 pág. · HTTP 200\n✅ OP18_MATHOM — buscando OP-18 · HTTP 200\n✅ OP18_ZACATRUS — buscando OP-18 · 4 pág. · HTTP 200\n✅ OP18_PAPER_DEALER — sin stock · 160,00 € · ficha directa · HTTP 200\n\n🔎 Catálogos: búsqueda con paginación + seguimiento de ficha detectada\n📋 Informe de estado: cada 12 horas",
+      "sent_at": null,
+      "source": "status_report"
+    },
     "b31c24958195124488becd68edd40180": {
       "attempts": 1,
       "created_at": "2026-10-20T03:31:46+00:00",
