@@ -32,5 +32,13 @@ class SourceDiagnosticsTests(unittest.TestCase):
         html="<h1>EB-05 Booster Box 24 sobres Inglés</h1><button>Añadir al carrito</button>"
         self.assertNotEqual(inspect_html(html, "https://example.test/eb05", "EB05"), "DISPONIBLE")
 
+    def test_paused_turol_never_makes_http_requests(self):
+        from diagnose_sources import run_diagnostics
+        session = Mock()
+        run_diagnostics(session)
+        requested = [call.args[0] for call in session.get.call_args_list]
+        self.assertFalse(any("turolgames" in url for url in requested))
+
+
 if __name__ == "__main__":
     unittest.main()

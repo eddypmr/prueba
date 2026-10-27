@@ -5,10 +5,12 @@ from product_guard import direct_page_identity, is_english_display, preorder_mar
 
 DIAGNOSTIC_TARGETS = {
     "TUROL_EB05": {
+        "paused": True,  # GitHub Actions devuelve HTTP 202; revisión manual.
         "code": "EB05",
         "url": "https://www.turolgames.com/es/one-piece-tcg/130163-one-piece-card-game-eb-05-extra-booster-display-24-booster-ingles",
     },
     "TUROL_OP18": {
+        "paused": True,  # Evitar peticiones cada 30 min a sitio bloqueado.
         "code": "OP18",
         "url": "https://www.turolgames.com/es/one-piece-tcg/130240-one-piece-card-game-booster-display-op-18-24-packs-ingles",
     },
@@ -55,4 +57,7 @@ def diagnostic_check(session, name, config):
 
 def run_diagnostics(session):
     for name, config in DIAGNOSTIC_TARGETS.items():
+        if config.get("paused"):
+            print(f"🧪 DIAG_{name}: PAUSADO (HTTP 202 desde GitHub; revisión manual)")
+            continue
         diagnostic_check(session, name, config)
