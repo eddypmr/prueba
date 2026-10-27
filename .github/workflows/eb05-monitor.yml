@@ -23,6 +23,7 @@ on:
       - "monitor.py"
       - "product_guard.py"
       - "diagnose_sources.py"
+      - "logpose_sources.py"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/eb05-monitor.yml"

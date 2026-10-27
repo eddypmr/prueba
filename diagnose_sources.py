@@ -63,4 +63,4 @@ def run_diagnostics(session):
             continue
         diagnostic_check(session, name, config)
     # Comparador adicional EB-05 / OP-18. No escribe estado ni envía alertas.
-    run_comparator_checks(session)
+    return run_comparator_checks(session)

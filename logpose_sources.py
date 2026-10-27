@@ -115,6 +115,28 @@ def check_one(session, code, set_code):
 
 
 def run_comparator_checks(session):
-    """Solo telemetría. La fuente no es una tienda y no debe disparar alertas."""
+    """Lectura solo informativa: jamás se afirma stock real de las tiendas."""
+    results = {}
     for code, set_code in WATCHED_SETS.items():
-        check_one(session, code, set_code)
+        results[code] = check_one(session, code, set_code)
+    return results
+
+
+def format_comparator_report(results):
+    """Resumen cada 12 h: distinguir listados de disponibilidad confirmada."""
+    lines = ["", "📊 LOGPOSE · datos orientativos (pueden ser preventas)"]
+    for code, set_code in WATCHED_SETS.items():
+        result = (results or {}).get(code) or {}
+        products = result.get("products") or []
+        if result.get("ok") and products:
+            product = products[0]
+            label = "Listado en comparador" if product["status"] == "LISTADO_COMPARADOR" else "Sin stock según comparador"
+            lines.append(
+                f"• {set_code} display EN: {label} · "
+                f"{product.get('price') or 'sin precio'}"
+            )
+            lines.append(product["url"])
+        else:
+            lines.append(f"• {set_code}: no verificable · {search_url(set_code)}")
+    lines.append("Antes de comprar, comprobar stock y tipo de venta en la tienda.")
+    return "\n".join(lines)

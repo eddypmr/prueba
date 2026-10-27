@@ -1,7 +1,7 @@
 """LOGPOSE es un comparador: no confundir reservas/cases/sobres con stock."""
 import unittest
 from unittest.mock import Mock
-from logpose_sources import WATCHED_SETS, search_url, parse_comparator, check_one
+from logpose_sources import WATCHED_SETS, search_url, parse_comparator, check_one, format_comparator_report
 
 HTML = """
 <html><body><main>
@@ -41,6 +41,17 @@ class LogposeSourcesTests(unittest.TestCase):
     def test_ignores_off_domain_product_link(self):
         html = '<a href="https://phishing.test/producto/499">EB-05 · EN Booster Box EB-05 EN</a>'
         self.assertEqual(parse_comparator(html, "EB-05"), [])
+
+    def test_periodic_report_is_explicitly_not_stock_confirmation(self):
+        results = {"EB05": {"ok": True, "products": [{
+            "status": "LISTADO_COMPARADOR", "price": "119,95 €",
+            "url": "https://tcglogpose.com/producto/429"
+        }]}}
+        report = format_comparator_report(results)
+        self.assertIn("pueden ser preventas", report)
+        self.assertIn("Listado en comparador", report)
+        self.assertIn("OP-18: no verificable", report)
+        self.assertNotIn("✅ EB-05 DISPONIBLE", report)
 
     def test_invalid_response_does_not_raise_stock_alert(self):
         session = Mock()
