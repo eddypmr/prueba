@@ -140,6 +140,31 @@ def analyze_product(html, url, code):
     return "DESCONOCIDO", title
 
 
+def diagnose_page(html, code):
+    """Diagnóstico agregado, sin registrar contenido de la página."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    body = soup.get_text(" ", strip=True)
+    challenge = bool(re.search(
+        r"just a moment|checking your browser|verify you are human|"
+        r"attention required|cf-challenge|captcha|access denied|"
+        r"comprobando (?:tu|su) navegador|verifica que eres humano",
+        (title + " " + body[:2500] + " " + (html or "")[:4000]).lower()
+    ))
+    cards = len(soup.select("li.product, article.product, .products .product"))
+    products = len(soup.select("div.product.type-product, form.cart"))
+    links = len(soup.select('a[href*="/comprar/"]'))
+    if challenge:
+        kind = "ANTIBOT"
+    elif cards or products or links:
+        kind = "CATALOGO_O_FICHA"
+    elif not html or len(html) < 1000:
+        kind = "HTML_INCOMPLETO"
+    else:
+        kind = "SIN_ESTRUCTURA_PRODUCTOS"
+    return kind, cards, products, links
+
+
 def check_herofreaks(session, code, browser=None):
     """Busca producto y comprueba ficha; errores nunca eliminan stock histórico."""
     if PAUSED_FROM_GITHUB:
@@ -162,14 +187,25 @@ def check_herofreaks(session, code, browser=None):
             return None, url, "HTTP"
 
         html, via, final_url = browser.fetch(url)
+        if html:
+            kind, cards, products, links = diagnose_page(html, code)
+            print(f"🩺 HEROFREAKS_{code}: {kind} "
+                  f"(tarjetas={cards}, fichas={products}, enlaces={links}, "
+                  f"bytes={len(html)}, origen={via})")
+            if kind == "ANTIBOT":
+                return None, url, via
         if html and same_shop(final_url) and len(html) > 1000:
-            print(f"🔎 HEROFREAKS_{code}: fallback {via} correcto")
+            print(f"🔎 HEROFREAKS_{code}: fallback HTML recibido ({via})")
             return html, final_url, via
         print(f"🔎 HEROFREAKS_{code}: fallback sin acceso verificable ({via})")
         return None, url, via
     for url in CATALOGS:
         html, final_url, via = fetch_page(url)
         if not html or "one piece" not in html.lower() or len(html) < 1000:
+            continue
+        kind, cards, products, links = diagnose_page(html, code)
+        if kind != "CATALOGO_O_FICHA":
+            print(f"🩺 HEROFREAKS_{code}: catálogo no verificable ({kind})")
             continue
         at_least_one_catalog = True
         product_url = find_product_link(html, final_url, code)
