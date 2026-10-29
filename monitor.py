@@ -15,7 +15,7 @@ from notification_outbox import queue_alert, pending_report_exists, send_telegra
 from product_guard import guarded_stock, is_english_display, preorder_marker
 from diagnose_sources import run_diagnostics
 from logpose_sources import format_comparator_report
-from herofreaks_source import check_herofreaks
+from herofreaks_source import check_herofreaks, DIRECT_PRODUCT_URLS
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -2153,7 +2153,7 @@ def main():
         # HeroFreaks: tienda local de Almàssera; comprobación específica WooCommerce.
         # No confundir preventa ni sobres sueltos con display inglés disponible.
         for code, key in (("EB05", "HEROFREAKS"), ("OP18", "OP18_HEROFREAKS")):
-            result = check_herofreaks(session, code, browser)
+            result = check_herofreaks(session, code, browser, DIRECT_PRODUCT_URLS.get(code))
             print(f"HEROFREAKS_{code}: {result['status']}" +
                   (f" [{result['url']}]" if result.get("ok") else " [no verificable]"))
             run_results[key] = {
