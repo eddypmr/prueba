@@ -3,6 +3,60 @@ import unittest
 
 from notification_outbox import dispatch_pending, pending_report_exists, queue_alert
 from merge_state import merge_states
+from monitor import (build_status_report, telegram_product_message,
+                     notify_if_transition, notify_op18_transition)
+
+
+class TelegramPresentationTests(unittest.TestCase):
+    def test_available_message_tells_user_to_enter(self):
+        msg = telegram_product_message(
+            "EB-05", "GARHIS", "DISPONIBLE",
+            "https://garhis.es/eb-05", "129,95 €")
+        self.assertTrue(msg.startswith("🟢 EB-05 DISPONIBLE — ENTRA AHORA"))
+        self.assertIn("129,95 €", msg)
+        self.assertIn("https://garhis.es/eb-05", msg)
+
+    def test_out_of_stock_message_tells_user_not_to_enter(self):
+        msg = telegram_product_message(
+            "EB-05", "GARHIS", "NO_DISPONIBLE",
+            "https://garhis.es/eb-05")
+        self.assertTrue(msg.startswith("🔴 EB-05 AGOTADO"))
+        self.assertNotIn("ENTRA AHORA", msg)
+
+    def test_unverified_listing_is_not_a_buy_alert(self):
+        msg = telegram_product_message(
+            "OP-18", "METROPOLIS_CENTER", "DESCONOCIDO",
+            "https://metropolis-center.com/")
+        self.assertTrue(msg.startswith("🟡 OP-18"))
+        self.assertIn("STOCK SIN CONFIRMAR", msg)
+        self.assertNotIn("ENTRA AHORA", msg)
+
+    def test_summary_never_marks_out_of_stock_as_available(self):
+        result = build_status_report({
+            "GARHIS": {"healthy": True, "status": "NO_DISPONIBLE"},
+            "KABURI": {"healthy": True, "status": "DISPONIBLE",
+                       "price": "200 €"},
+            "HEROFREAKS": {"healthy": False, "status": "DESCONOCIDO"},
+        })
+        self.assertIn("🟢 EB-05 · Kaburi · 200 €", result)
+        self.assertIn("🔴 Agotado: Garhis", result)
+        self.assertIn("⚪ No verificable: Herofreaks", result)
+        self.assertNotIn("🟢 EB-05 · Garhis", result)
+        self.assertIn("Solo 🟢 confirma compra", result)
+
+    def test_only_confirmed_transition_is_buy_alert(self):
+        state = {}
+        previous = {"mode": "direct", "status": "NO_DISPONIBLE"}
+        current = {"mode": "direct", "status": "DISPONIBLE",
+                   "last_changed": "t1", "url": "https://garhis.es/eb05"}
+        notify_if_transition("GARHIS", previous, current, state)
+        alert = next(iter(state["_outbox"].values()))
+        self.assertIn("ENTRA AHORA", alert["message"])
+
+        state2 = {}
+        current2 = dict(current, status="DESCONOCIDO")
+        notify_op18_transition("KABURI", previous, current2, state2)
+        self.assertNotIn("_outbox", state2)
 
 
 class NotificationOutboxTests(unittest.TestCase):
