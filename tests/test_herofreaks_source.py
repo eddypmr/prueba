@@ -1,7 +1,7 @@
 """Tests HeroFreaks: solo display EN realmente comprable genera aviso."""
 import unittest
 from unittest.mock import Mock, patch
-from herofreaks_source import find_product_link, analyze_product, check_herofreaks
+from herofreaks_source import find_product_link, analyze_product, check_herofreaks, diagnose_page
 
 URL = "https://herofreaks.com/comprar/juegos-de-cartas/one-piece-card-game/eb05-display/"
 TITLE = "Extra Booster Display – Heroines Edition Vol.2 EB-05: One Piece Card Game"
@@ -14,6 +14,18 @@ def product(inner, title=TITLE, lang="English"):
             f'<tr><th>Idioma</th><td>{lang}</td></tr></table></div>')
 
 class HeroFreaksTests(unittest.TestCase):
+    def test_diagnostic_detects_antibot(self):
+        html = "<html><title>Just a moment...</title><body>Checking your browser</body></html>"
+        self.assertEqual(diagnose_page(html, "EB05")[0], "ANTIBOT")
+
+    def test_diagnostic_detects_product_catalog(self):
+        html = '<html><ul class="products"><li class="product">One Piece</li></ul></html>'
+        self.assertEqual(diagnose_page(html, "EB05")[0], "CATALOGO_O_FICHA")
+
+    def test_diagnostic_detects_empty_layout(self):
+        html = "<html><body>" + "Información genérica " * 80 + "</body></html>"
+        self.assertEqual(diagnose_page(html, "EB05")[0], "SIN_ESTRUCTURA_PRODUCTOS")
+
     def test_selects_display_not_single_pack(self):
         catalog = (
             '<html><body><h1>One Piece Card Game</h1><ul class="products">'
