@@ -63,6 +63,35 @@ class HeroFreaksTests(unittest.TestCase):
         self.assertIn("403", result["reason"])
         session.get.assert_not_called()
 
+    def test_403_triggers_browser_fallback(self):
+        session = Mock()
+        session.get.return_value = Mock(status_code=403,
+            url="https://herofreaks.com/one-piece-card-game/", text="")
+        browser = Mock()
+        catalog = ('<html><h1>One Piece Card Game</h1><ul class="products">'
+                   f'<li class="product"><a href="{URL}"><h2>{TITLE}</h2></a></li>'
+                   '</ul>' + ' one piece ' * 120 + '</html>')
+        browser.fetch.side_effect = [
+            (catalog, "Playwright/Chromium", "https://herofreaks.com/one-piece-card-game/"),
+            (product('<form class="cart"><button class="single_add_to_cart_button">Comprar</button></form>'),
+             "Playwright/Chromium", URL),
+        ]
+        result = check_herofreaks(session, "EB05", browser)
+        self.assertEqual(result["status"], "DISPONIBLE")
+        self.assertEqual(result["via"], "Playwright/Chromium")
+        self.assertEqual(browser.fetch.call_count, 2)
+
+    def test_403_browser_blocked_never_alerts(self):
+        session = Mock()
+        session.get.return_value = Mock(status_code=403,
+            url="https://herofreaks.com/one-piece-card-game/", text="")
+        browser = Mock()
+        browser.fetch.return_value = (None, "Playwright error: blocked",
+                                      "https://herofreaks.com/one-piece-card-game/")
+        result = check_herofreaks(session, "EB05", browser)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "DESCONOCIDO")
+
     def test_403_never_confirms_stock(self):
         session=Mock()
         session.get.return_value=Mock(status_code=403,url="https://herofreaks.com/one-piece-card-game/",text="")
