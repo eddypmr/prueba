@@ -56,7 +56,9 @@ class HeroFreaksTests(unittest.TestCase):
 
     def test_paused_source_never_fetches_blocked_shop(self):
         session=Mock()
-        result=check_herofreaks(session, "EB05")
+        # La pausa solo se comprueba si se activa explícitamente.
+        with patch("herofreaks_source.PAUSED_FROM_GITHUB", True):
+            result=check_herofreaks(session, "EB05")
         self.assertFalse(result["ok"])
         self.assertIn("403", result["reason"])
         session.get.assert_not_called()
