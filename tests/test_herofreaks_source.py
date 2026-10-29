@@ -53,6 +53,13 @@ class HeroFreaksTests(unittest.TestCase):
                                          text="<html><h1>One Piece Card Game</h1>"+" catálogo "*200+"</html>")
         self.assertEqual(check_herofreaks(session, "EB05")["status"], "BUSCANDO")
 
+    def test_paused_source_never_fetches_blocked_shop(self):
+        session=Mock()
+        result=check_herofreaks(session, "EB05")
+        self.assertFalse(result["ok"])
+        self.assertIn("403", result["reason"])
+        session.get.assert_not_called()
+
     def test_403_never_confirms_stock(self):
         session=Mock()
         session.get.return_value=Mock(status_code=403,url="https://herofreaks.com/one-piece-card-game/",text="")

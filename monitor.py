@@ -2161,7 +2161,7 @@ def main():
                 "healthy": result["ok"],
                 "status": result["status"],
                 "via": "ficha HeroFreaks / HTTP",
-                "note": "no se pudo validar la ficha",
+                "note": result.get("reason", "no se pudo validar la ficha"),
             }
             if result["ok"]:
                 previous = state.get(key, {})

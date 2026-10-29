@@ -15,6 +15,9 @@ CATALOGS = (
     ROOT + "/proximamente/",
 )
 SETS = {"EB05": "EB-05", "OP18": "OP-18"}
+# GitHub Actions recibió HTTP 403 en ambos catálogos (29/10/2026).
+# Pausado hasta disponer de acceso permitido y respuesta verificable.
+PAUSED_FROM_GITHUB = True
 TARGET = {
     "EB05": re.compile(r"(?<![a-z0-9])eb[\s_-]*0?5(?![a-z0-9])", re.I),
     "OP18": re.compile(r"(?<![a-z0-9])op[\s_-]*0?18(?![a-z0-9])", re.I),
@@ -138,6 +141,10 @@ def analyze_product(html, url, code):
 
 def check_herofreaks(session, code):
     """Busca producto y comprueba ficha; errores nunca eliminan stock histórico."""
+    if PAUSED_FROM_GITHUB:
+        print(f"🔎 HEROFREAKS_{code}: PAUSADO (HTTP 403 desde GitHub; revisar manual)")
+        return {"ok": False, "status": "DESCONOCIDO", "url": CATALOGS[0],
+                "reason": "Bloqueo HTTP 403 desde GitHub"}
     product_url = None
     at_least_one_catalog = False
     for url in CATALOGS:

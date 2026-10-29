@@ -23,6 +23,7 @@ on:
       - "monitor.py"
       - "product_guard.py"
       - "diagnose_sources.py"
+      - "herofreaks_source.py"
       - "logpose_sources.py"
       - "tests/**"
       - "requirements.txt"
