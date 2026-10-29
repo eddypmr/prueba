@@ -51,7 +51,7 @@ def send_telegram(message):
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            data={"chat_id": chat_id, "text": message, "disable_web_page_preview": False},
+            data={"chat_id": chat_id, "text": message, "disable_web_page_preview": True},
             timeout=15,
         )
         # Un HTTP 200 no basta: exigimos el 'ok' real de la API de Telegram.
