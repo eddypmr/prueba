@@ -2153,14 +2153,14 @@ def main():
         # HeroFreaks: tienda local de Almàssera; comprobación específica WooCommerce.
         # No confundir preventa ni sobres sueltos con display inglés disponible.
         for code, key in (("EB05", "HEROFREAKS"), ("OP18", "OP18_HEROFREAKS")):
-            result = check_herofreaks(session, code)
+            result = check_herofreaks(session, code, browser)
             print(f"HEROFREAKS_{code}: {result['status']}" +
                   (f" [{result['url']}]" if result.get("ok") else " [no verificable]"))
             run_results[key] = {
                 "connected": result["ok"],
                 "healthy": result["ok"],
                 "status": result["status"],
-                "via": "ficha HeroFreaks / HTTP",
+                "via": result.get("via", "ficha HeroFreaks / HTTP"),
                 "note": result.get("reason", "no se pudo validar la ficha"),
             }
             if result["ok"]:
