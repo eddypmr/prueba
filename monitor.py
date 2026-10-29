@@ -1467,139 +1467,99 @@ def build_state_entry(
     return entry
 
 
+def telegram_store_name(store):
+    """Nombre corto para el móvil, sin prefijos ni IDs internos."""
+    return store.replace("OP18_", "").replace("_", " ").title().replace(
+        "Bcn", "BCN"
+    )
+
+
+def telegram_product_message(code, store, status, url, price=None):
+    """El primer renglón indica si merece la pena abrir la tienda."""
+    if status == "DISPONIBLE":
+        heading = f"🟢 {code} DISPONIBLE — ENTRA AHORA"
+        instruction = "✅ Caja en inglés con compra confirmada por el monitor."
+    elif status == "NO_DISPONIBLE":
+        heading = f"🔴 {code} AGOTADO — NO HACE FALTA ENTRAR"
+        instruction = "❌ Ficha encontrada, pero sin stock."
+    else:
+        heading = f"🟡 {code} — STOCK SIN CONFIRMAR"
+        instruction = "👀 Ficha detectada; revisa manualmente si te interesa."
+
+    lines = [heading, f"🏪 {telegram_store_name(store)}", instruction]
+    if price:
+        lines.append(f"💶 {price}")
+    if url:
+        lines.append(f"🔗 {url}")
+    return "\n".join(lines)
+
+
 def notify_if_transition(store, previous, new_entry, state):
-    def queue(message):
+    def queue(status):
         queue_alert(
-            state, "EB05_" + store, new_entry.get("last_changed"), message
+            state, "EB05_" + store, new_entry.get("last_changed"),
+            telegram_product_message(
+                "EB-05", store, status,
+                new_entry.get("product_url") or new_entry.get("url"),
+                new_entry.get("price"),
+            )
         )
 
     old_status = previous.get("status")
     new_status = new_entry.get("status")
-    old_mode = previous.get("mode")
-    new_mode = new_entry.get("mode")
-    old_product_url = previous.get("product_url")
-    new_product_url = new_entry.get("product_url")
-    url = new_product_url or new_entry.get("url")
-    price = new_entry.get("price")
-    price_line = f"\n💶 {price}" if price else ""
-
     product_appeared = (
-        new_mode == "discovered_product"
-        and old_mode != "discovered_product"
-    )
-
-    # Importante: si la primera lectura ya encuentra una ficha disponible,
-    # avisamos en lugar de convertirla silenciosamente en baseline.
-    if not previous or old_status is None:
-        if new_status == "DISPONIBLE":
-            queue(
-                f"🚨 ONE PIECE EB-05 DISPONIBLE\n\n"
-                f"🏪 {store}\n"
-                f"✅ Primera lectura y ya hay señales de compra/stock."
-                f"{price_line}\n\n{url}"
-            )
-        elif new_mode == "discovered_product" and new_status != "PREVENTA":
-            queue(
-                f"🆕 EB-05 DETECTADO EN UNA TIENDA\n\n"
-                f"🏪 {store}\n"
-                f"Estado inicial: {new_status}"
-                f"{price_line}\n\n{url}"
-            )
-        return
-
-    if product_appeared:
-        if new_status == "PREVENTA":
-            return
-        if new_status == "DISPONIBLE":
-            queue(
-                f"🚨 NUEVA FICHA EB-05 Y ESTÁ DISPONIBLE\n\n"
-                f"🏪 {store}\n"
-                f"✅ Se ha descubierto la ficha del producto y tiene señales de compra."
-                f"{price_line}\n\n{url}"
-            )
-        else:
-            queue(
-                f"🆕 EB-05 HA APARECIDO EN UNA TIENDA\n\n"
-                f"🏪 {store}\n"
-                f"Estado detectado: {new_status}"
-                f"{price_line}\n\n{url}"
-            )
-        return
-
-    if old_status == new_status:
-        return
-
-    if new_status == "DISPONIBLE":
-        queue(
-            f"🚨 ONE PIECE EB-05 DISPONIBLE\n\n"
-            f"🏪 {store}\n"
-            f"✅ Se detectan señales de compra/stock."
-            f"{price_line}\n\n{url}"
-        )
-
-    # DESCONOCIDO no genera alerta de reposición: evitamos falsos positivos.
-
-
-def notify_op18_transition(store, previous, new_entry, state):
-    def queue(message):
-        queue_alert(
-            state, "OP18_" + store, new_entry.get("last_changed"), message
-        )
-
-    old_status = previous.get("status")
-    new_status = new_entry.get("status")
-    old_mode = previous.get("mode")
-    new_mode = new_entry.get("mode")
-    old_product_url = previous.get("product_url")
-    new_product_url = new_entry.get("product_url")
-    url = new_product_url or new_entry.get("url")
-    price = new_entry.get("price")
-    price_line = f"\n💶 {price}" if price else ""
-
-    product_appeared = (
-        new_mode == "discovered_product"
-        and old_mode != "discovered_product"
+        new_entry.get("mode") == "discovered_product"
+        and previous.get("mode") != "discovered_product"
     )
 
     if not previous or old_status is None:
         if new_status == "DISPONIBLE":
-            queue(
-                f"🚨 ONE PIECE OP-18 DISPONIBLE\n\n"
-                f"🏪 {store}\n"
-                f"✅ Primera lectura y ya hay señales de compra/stock."
-                f"{price_line}\n\n{url}"
-            )
-        elif new_mode == "discovered_product" and new_status != "PREVENTA":
-            queue(
-                f"🆕 OP-18 DETECTADO EN UNA TIENDA\n\n"
-                f"🏪 {store}\n"
-                f"Estado inicial: {new_status}"
-                f"{price_line}\n\n{url}"
-            )
+            queue(new_status)
+        elif product_appeared and new_status != "PREVENTA":
+            queue(new_status)
         return
 
     if product_appeared:
-        if new_status == "PREVENTA":
-            return
-        queue(
-            (
-                "🚨 NUEVA FICHA OP-18 Y ESTÁ DISPONIBLE"
-                if new_status == "DISPONIBLE"
-                else "🆕 OP-18 HA APARECIDO EN UNA TIENDA"
-            )
-            + f"\n\n🏪 {store}\n"
-            + f"Estado detectado: {new_status}"
-            + f"{price_line}\n\n{url}"
-        )
+        if new_status != "PREVENTA":
+            queue(new_status)
         return
 
     if old_status != new_status and new_status == "DISPONIBLE":
-        queue(
-            f"🚨 ONE PIECE OP-18 DISPONIBLE\n\n"
-            f"🏪 {store}\n"
-            f"✅ Se detectan señales de compra/stock."
-            f"{price_line}\n\n{url}"
+        queue(new_status)
+
+
+def notify_op18_transition(store, previous, new_entry, state):
+    def queue(status):
+        queue_alert(
+            state, "OP18_" + store, new_entry.get("last_changed"),
+            telegram_product_message(
+                "OP-18", store, status,
+                new_entry.get("product_url") or new_entry.get("url"),
+                new_entry.get("price"),
+            )
         )
+
+    old_status = previous.get("status")
+    new_status = new_entry.get("status")
+    product_appeared = (
+        new_entry.get("mode") == "discovered_product"
+        and previous.get("mode") != "discovered_product"
+    )
+
+    if not previous or old_status is None:
+        if new_status == "DISPONIBLE":
+            queue(new_status)
+        elif product_appeared and new_status != "PREVENTA":
+            queue(new_status)
+        return
+
+    if product_appeared:
+        if new_status != "PREVENTA":
+            queue(new_status)
+        return
+
+    if old_status != new_status and new_status == "DISPONIBLE":
+        queue(new_status)
 
 
 def update_op18_state(state, store, new_entry):
@@ -1787,15 +1747,6 @@ def monitor_op18_discovery_store(session, browser, store, config, state, run_res
     return update_op18_state(state, store, new_entry)
 
 
-STATUS_LABELS = {
-    "NO_DISPONIBLE": "sin stock",
-    "DISPONIBLE": "DISPONIBLE",
-    "DESCONOCIDO": "estado no concluyente",
-    "PREVENTA": "preventa / reserva",
-    "BUSCANDO": "buscando producto",
-}
-
-
 def status_report_due(state):
     meta = state.get("_meta", {})
     last_report = meta.get("last_status_report")
@@ -1817,76 +1768,54 @@ def status_report_due(state):
 
 
 def build_status_report(results):
-    total = (
-        len(DIRECT_PRODUCTS)
-        + len(DISCOVERY_PAGES)
-        + len(OP18_DIRECT_PRODUCTS)
-        + len(OP18_DISCOVERY_PAGES)
-        + 2  # HEROFREAKS y OP18_HEROFREAKS
-    )
-    healthy = sum(1 for item in results.values() if item.get("healthy"))
-    connected = sum(1 for item in results.values() if item.get("connected"))
-
-    if healthy == total:
-        headline = "✅ Todo funciona correctamente y todas las páginas responden."
-    elif connected == total:
-        headline = (
-            f"⚠️ El monitor completó las {total} comprobaciones, "
-            f"pero {total - healthy} no pudieron validarse del todo."
-        )
-    else:
-        headline = (
-            f"⚠️ El monitor está activo. {connected}/{total} comprobaciones respondieron; "
-            f"{total - connected} no respondieron correctamente."
-        )
-
-    lines = ["🩺 ESTADO MONITOR ONE PIECE EB-05 / OP-18", "", headline, ""]
-
-    ordered_stores = (
+    """Telegram breve: primero compras confirmadas, luego lo demás."""
+    ordered = (
         ["HEROFREAKS", "OP18_HEROFREAKS"]
-        + list(DIRECT_PRODUCTS.keys())
-        + list(DISCOVERY_PAGES.keys())
+        + list(DIRECT_PRODUCTS)
+        + list(DISCOVERY_PAGES)
         + [f"OP18_{store}" for store in OP18_DIRECT_PRODUCTS]
         + [f"OP18_{store}" for store in OP18_DISCOVERY_PAGES]
     )
 
-    for store in ordered_stores:
-        item = results.get(store)
+    # Metrópolis está en revisión manual y no pertenece a DISCOVERY_PAGES.
+    # Se muestra como NO VERIFICADO, nunca como agotado ni disponible.
+    for extra in ("METROPOLIS_CENTER", "OP18_METROPOLIS_CENTER"):
+        if extra not in ordered:
+            ordered.append(extra)
 
-        if not item:
-            lines.append(f"⚠️ {store} — sin resultado en esta ejecución")
-            continue
-
-        if item.get("healthy"):
-            raw_status = item.get("status")
-            if raw_status == "BUSCANDO":
-                status = "buscando OP-18" if store.startswith("OP18_") else "buscando EB-05"
-            else:
-                status = STATUS_LABELS.get(raw_status, raw_status or "OK")
-            via = item.get("via", "")
-            pages = item.get("pages_checked")
-            pages_text = f" · {pages} pág." if pages and pages > 1 else ""
-            price = item.get("price")
-            price_text = f" · {price}" if price else ""
-            via_text = f" · {via}" if via else ""
-            lines.append(
-                f"✅ {store} — {status}{price_text}{pages_text}{via_text}"
-            )
-        elif item.get("connected"):
-            note = item.get("note", "respuesta recibida, pero no validada")
-            lines.append(f"⚠️ {store} — {note}")
+    groups = {"EB-05": {}, "OP-18": {}}
+    available = []
+    for key in ordered:
+        code = "OP-18" if key.startswith("OP18_") else "EB-05"
+        name = telegram_store_name(key)
+        item = results.get(key)
+        status = (item.get("status") if item and item.get("healthy")
+                  else "DESCONOCIDO")
+        if status == "DISPONIBLE":
+            price = f" · {item['price']}" if item.get("price") else ""
+            available.append(f"🟢 {code} · {name}{price}")
         else:
-            note = item.get("note", "sin conexión")
-            lines.append(f"❌ {store} — {note}")
+            groups[code].setdefault(status, []).append(name)
 
-    lines.extend(
-        [
-            "",
-            "🔎 Catálogos: búsqueda con paginación + seguimiento de ficha detectada",
-            f"📋 Informe de estado: cada {STATUS_REPORT_INTERVAL_HOURS} horas",
-        ]
-    )
+    lines = ["📦 ONE PIECE · RESUMEN DE STOCK", ""]
+    if available:
+        lines.extend(["🟢 ENTRA AHORA — COMPRA CONFIRMADA", *available])
+    else:
+        lines.append("ℹ️ Ninguna caja con compra confirmada ahora.")
 
+    for code in ("EB-05", "OP-18"):
+        by_status = groups[code]
+        lines.extend(["", f"{code}:"])
+        if by_status.get("NO_DISPONIBLE"):
+            lines.append("🔴 Agotado: " + ", ".join(by_status["NO_DISPONIBLE"]))
+        if by_status.get("BUSCANDO"):
+            lines.append("🔎 Sin ficha encontrada: " + ", ".join(by_status["BUSCANDO"]))
+        if by_status.get("PREVENTA"):
+            lines.append("🟠 Preventa: " + ", ".join(by_status["PREVENTA"]))
+        if by_status.get("DESCONOCIDO"):
+            lines.append("⚪ No verificable: " + ", ".join(by_status["DESCONOCIDO"]))
+
+    lines.extend(["", "👉 Solo 🟢 confirma compra. ⚪ no significa agotado."])
     return "\n".join(lines)
 
 
@@ -2179,10 +2108,9 @@ def main():
                     set_label = "EB-05" if code == "EB05" else "OP-18"
                     queue_alert(
                         state, f"{code}_HEROFREAKS", entry["last_changed"],
-                        f"🚨 ONE PIECE {set_label} DISPONIBLE EN HEROFREAKS"
-                        f"\n\n🏪 HeroFreaks · Almàssera (Valencia)"
-                        f"\n✅ Booster Box en inglés con botón de compra"
-                        f"\n\n{result['url']}"
+                        telegram_product_message(
+                            set_label, "HEROFREAKS", "DISPONIBLE", result["url"]
+                        )
                     )
                     changed = True
                 if previous != entry:
@@ -2230,7 +2158,9 @@ def main():
         comparator_results = run_diagnostics(session)
 
         if status_report_due(state) and not pending_report_exists(state):
-            report = build_status_report(run_results) + format_comparator_report(comparator_results)
+            # El comparador es orientativo; no confirma compras y no se mezcla
+            # con el resumen de Telegram para evitar confusión.
+            report = build_status_report(run_results)
             print("📋 Informe periódico preparado y añadido a la cola.")
             queue_alert(state, "status_report", utc_now(), report, kind="report")
             changed = True
