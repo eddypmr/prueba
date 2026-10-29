@@ -101,10 +101,14 @@ def analyze_product(html, url, code):
     if not is_target_listing(title, code):
         return "DESCONOCIDO", None
 
+    # En Elementor .product_meta (SKU/categoría) precede a la tabla Idioma.
+    # Elegir explícitamente los atributos antes de recurrir a metadatos.
     details = product.select_one(
         "table.woocommerce-product-attributes, "
-        ".woocommerce-product-attributes, .product_meta"
+        ".woocommerce-product-attributes"
     )
+    if details is None:
+        details = product.select_one(".product_meta")
     details_text = details.get_text(" ", strip=True) if details else ""
     if not is_english_display(f"{title} {details_text} {url}", code):
         return "DESCONOCIDO", title
