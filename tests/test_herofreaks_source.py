@@ -59,12 +59,48 @@ class HeroFreaksTests(unittest.TestCase):
         html=product('<form class="cart"><button class="single_add_to_cart_button">Añadir</button></form>')
         self.assertNotEqual(analyze_product(html, URL, "OP18")[0], "DISPONIBLE")
 
-    def test_catalog_without_product_is_not_stock(self):
+    def test_generic_page_without_products_is_unknown(self):
         session = Mock()
-        session.get.return_value = Mock(status_code=200, url="https://herofreaks.com/one-piece-card-game/",
-                                         text="<html><h1>One Piece Card Game</h1>"+" catálogo "*200+"</html>")
+        session.get.return_value = Mock(
+            status_code=200, url="https://herofreaks.com/one-piece-card-game/",
+            text="<html><h1>One Piece Card Game</h1>" + " catálogo " * 200 + "</html>"
+        )
         with patch("herofreaks_source.PAUSED_FROM_GITHUB", False):
-            self.assertEqual(check_herofreaks(session, "EB05")["status"], "BUSCANDO")
+            result = check_herofreaks(session, "EB05")
+        self.assertEqual(result["status"], "DESCONOCIDO")
+        self.assertFalse(result["ok"])
+
+    def test_valid_catalog_without_target_product_is_searching(self):
+        session = Mock()
+        catalog = (
+            '<html><h1>One Piece Card Game</h1><ul class="products">'
+            '<li class="product"><h2>One Piece starter deck</h2></li>'
+            '</ul>' + ' one piece ' * 120 + '</html>'
+        )
+        session.get.return_value = Mock(
+            status_code=200, url="https://herofreaks.com/one-piece-card-game/",
+            text=catalog
+        )
+        with patch("herofreaks_source.PAUSED_FROM_GITHUB", False):
+            result = check_herofreaks(session, "EB05")
+        self.assertEqual(result["status"], "BUSCANDO")
+        self.assertTrue(result["ok"])
+
+    def test_antibot_page_never_counts_as_catalog(self):
+        session = Mock()
+        html = (
+            '<html><title>Just a moment...</title><body>'
+            'Checking your browser before visiting One Piece Card Game'
+            + ' one piece ' * 120 + '</body></html>'
+        )
+        session.get.return_value = Mock(
+            status_code=200, url="https://herofreaks.com/one-piece-card-game/",
+            text=html
+        )
+        with patch("herofreaks_source.PAUSED_FROM_GITHUB", False):
+            result = check_herofreaks(session, "EB05")
+        self.assertEqual(result["status"], "DESCONOCIDO")
+        self.assertFalse(result["ok"])
 
     def test_paused_source_never_fetches_blocked_shop(self):
         session=Mock()
