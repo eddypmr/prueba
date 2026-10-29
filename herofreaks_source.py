@@ -15,6 +15,12 @@ CATALOGS = (
     ROOT + "/proximamente/",
 )
 SETS = {"EB05": "EB-05", "OP18": "OP-18"}
+# Ficha real facilitada por el usuario. Sin query params, cookies ni sesión.
+DIRECT_PRODUCT_URLS = {
+    "EB05": (ROOT + "/comprar/juegos-de-cartas/one-piece-card-game/"
+             "extra-booster-display-heroines-edition-vol-2-eb-05-one-piece-card-game/"),
+}
+
 # El 29/10/2026 GitHub Actions recibió HTTP 403 en ambos catálogos.
 # Reintentamos en cada ejecución: si persiste el bloqueo, el resultado será
 # DESCONOCIDO y nunca se notificará stock sin validar la ficha real.
@@ -81,61 +87,79 @@ def find_product_link(html, page_url, code):
 
 
 def analyze_product(html, url, code):
-    """Disponible SOLO con un producto EN verificado y compra habilitada."""
+    """Solo la ficha principal: nunca botones de productos relacionados."""
     soup = BeautifulSoup(html or "", "html.parser")
-    h1 = soup.select_one("h1.product_title, h1.entry-title, h1")
+    product = soup.select_one(
+        "div.elementor-location-single.product.type-product, "
+        "div.product.type-product"
+    )
+    if product is None:
+        return "DESCONOCIDO", None
+
+    h1 = product.select_one("h1.product_title, h1.entry-title")
     title = h1.get_text(" ", strip=True) if h1 else ""
     if not is_target_listing(title, code):
         return "DESCONOCIDO", None
 
-    details = soup.select_one(
+    details = product.select_one(
         "table.woocommerce-product-attributes, "
         ".woocommerce-product-attributes, .product_meta"
     )
     details_text = details.get_text(" ", strip=True) if details else ""
-    # HeroFreaks suele poner «Idioma: English» en atributos del producto.
-    identity = f"{title} {details_text} {url}"
-    if not is_english_display(identity, code):
+    if not is_english_display(f"{title} {details_text} {url}", code):
         return "DESCONOCIDO", title
 
-    summary = soup.select_one("div.summary, .summary.entry-summary")
+    # El HTML real de Elementor tiene la clase outofstock en el contenedor
+    # principal y el mensaje dentro del widget del botón de compra.
+    purchase_widget = product.select_one(
+        ".elementor-widget-woocommerce-product-add-to-cart"
+    )
+    purchase_area = purchase_widget or product
+    stock = purchase_area.select_one("p.stock")
+    stock_text = stock.get_text(" ", strip=True) if stock else ""
+    out_of_stock = (
+        "outofstock" in product.get("class", [])
+        or (stock is not None and (
+            "out-of-stock" in stock.get("class", [])
+            or bool(re.search(
+                r"\b(?:sin existencias|agotad[oa]|sin stock|out of stock)\b",
+                stock_text, re.I
+            ))
+        ))
+    )
+    if out_of_stock:
+        return "NO_DISPONIBLE", title
+
+    # No confundir el formulario de lista de espera con un botón de compra.
+    if purchase_area.select_one(".yith-wcwtl-output"):
+        return "NO_DISPONIBLE", title
+
+    summary = product.select_one(
+        "div.summary, .summary.entry-summary, "
+        ".woocommerce-product-details__short-description"
+    )
     summary_text = summary.get_text(" ", strip=True) if summary else ""
-    # Detectar etiquetas en el contexto del PRODUCTO, no banners globales.
-    badges = soup.select("div.product .preventa, div.product .preorder, "
-                         "div.product .product-label, div.product span.onsale")
-    badge_text = " ".join(n.get_text(" ", strip=True) for n in badges)
-    if preorder_marker(f"<h1>{title}</h1>", summary_text) or re.search(
-        r"\b(?:preventa|pre[\s-]?order|reserva)\b", badge_text, re.I
-    ):
+    badge_nodes = product.select(
+        ".jet-listing-dynamic-field__content, "
+        ".elementor-button-text, .preventa, .preorder"
+    )
+    badge_preorder = any(re.search(
+        r"^\s*(?:preventa|pre[\s-]?order|reserva)\b",
+        el.get_text(" ", strip=True), re.I
+    ) for el in badge_nodes)
+    if badge_preorder or preorder_marker(f"<h1>{title}</h1>", summary_text):
         return "PREVENTA", title
 
-    product = soup.select_one("div.product.type-product, div.product")
-    if product is None:
-        return "DESCONOCIDO", title
-    stock = product.select_one("p.stock, .stock.out-of-stock, .stock.in-stock")
-    stock_text = stock.get_text(" ", strip=True) if stock else ""
-    out_of_stock = bool(
-        stock and (
-            "out-of-stock" in (stock.get("class") or [])
-            or re.search(r"\b(?:sin existencias|agotado|sin stock|out of stock)\b",
-                         stock_text, re.I)
-        )
-    )
-    if out_of_stock or "outofstock" in product.get("class", []):
-        return "NO_DISPONIBLE", title
-    if re.search(r"\b(?:av[ií]same cuando est[eé] disponible|sin existencias)\b",
-                 summary_text, re.I):
-        return "NO_DISPONIBLE", title
-
-    # Este botón debe ser el de la ficha, no la cabecera/recomendaciones.
-    btn = product.select_one(
+    # Requiere botón habilitado dentro del formulario cart de ESTE producto.
+    # Los a.add_to_cart_button de recomendaciones quedan fuera.
+    btn = purchase_area.select_one(
         "form.cart button.single_add_to_cart_button, "
         "form.cart button[name='add-to-cart']"
     )
-    if btn and not btn.has_attr("disabled") and not (
-        btn.get("aria-disabled") == "true"
-        or any("disabled" in str(v).lower() for v in btn.get("class", []))
-    ):
+    if (btn and not btn.has_attr("disabled")
+            and btn.get("aria-disabled") != "true"
+            and not any("disabled" in str(v).lower()
+                        for v in btn.get("class", []))):
         return "DISPONIBLE", title
     return "DESCONOCIDO", title
 
@@ -165,7 +189,7 @@ def diagnose_page(html, code):
     return kind, cards, products, links
 
 
-def check_herofreaks(session, code, browser=None):
+def check_herofreaks(session, code, browser=None, direct_url=None):
     """Busca producto y comprueba ficha; errores nunca eliminan stock histórico."""
     if PAUSED_FROM_GITHUB:
         print(f"🔎 HEROFREAKS_{code}: PAUSADO (HTTP 403 desde GitHub; revisar manual)")
@@ -199,6 +223,17 @@ def check_herofreaks(session, code, browser=None):
             return html, final_url, via
         print(f"🔎 HEROFREAKS_{code}: fallback sin acceso verificable ({via})")
         return None, url, via
+    # Primero la ficha EB-05 exacta: evita depender de catálogos bloqueados.
+    if direct_url and same_shop(direct_url):
+        html, final_url, via = fetch_page(direct_url)
+        if html:
+            status, title = analyze_product(html, final_url, code)
+            if status != "DESCONOCIDO":
+                print(f"🔎 HEROFREAKS_{code}: ficha directa → {status} ({via})")
+                return {"ok": True, "status": status, "url": final_url,
+                        "name": title, "via": via}
+            print(f"🔎 HEROFREAKS_{code}: ficha directa sin stock verificable")
+
     for url in CATALOGS:
         html, final_url, via = fetch_page(url)
         if not html or "one piece" not in html.lower() or len(html) < 1000:
