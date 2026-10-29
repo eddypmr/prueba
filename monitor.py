@@ -1478,7 +1478,7 @@ def telegram_product_message(code, store, status, url, price=None):
     """El primer renglón indica si merece la pena abrir la tienda."""
     if status == "DISPONIBLE":
         heading = f"🟢 {code} DISPONIBLE — ENTRA AHORA"
-        instruction = "✅ Caja en inglés con compra confirmada por el monitor."
+        instruction = "✅ Caja en inglés con botón de compra habilitado."
     elif status == "NO_DISPONIBLE":
         heading = f"🔴 {code} AGOTADO — NO HACE FALTA ENTRAR"
         instruction = "❌ Ficha encontrada, pero sin stock."
@@ -1799,7 +1799,7 @@ def build_status_report(results):
 
     lines = ["📦 ONE PIECE · RESUMEN DE STOCK", ""]
     if available:
-        lines.extend(["🟢 ENTRA AHORA — COMPRA CONFIRMADA", *available])
+        lines.extend(["🟢 ENTRA AHORA — STOCK VERIFICADO", *available])
     else:
         lines.append("ℹ️ Ninguna caja con compra confirmada ahora.")
 
@@ -1815,7 +1815,7 @@ def build_status_report(results):
         if by_status.get("DESCONOCIDO"):
             lines.append("⚪ No verificable: " + ", ".join(by_status["DESCONOCIDO"]))
 
-    lines.extend(["", "👉 Solo 🟢 confirma compra. ⚪ no significa agotado."])
+    lines.extend(["", "👉 Solo 🟢 indica compra habilitada. ⚪ no significa agotado."])
     return "\n".join(lines)
 
 
