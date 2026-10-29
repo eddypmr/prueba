@@ -1,6 +1,6 @@
 """Tests HeroFreaks: solo display EN realmente comprable genera aviso."""
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from herofreaks_source import find_product_link, analyze_product, check_herofreaks
 
 URL = "https://herofreaks.com/comprar/juegos-de-cartas/one-piece-card-game/eb05-display/"
@@ -51,7 +51,8 @@ class HeroFreaksTests(unittest.TestCase):
         session = Mock()
         session.get.return_value = Mock(status_code=200, url="https://herofreaks.com/one-piece-card-game/",
                                          text="<html><h1>One Piece Card Game</h1>"+" catálogo "*200+"</html>")
-        self.assertEqual(check_herofreaks(session, "EB05")["status"], "BUSCANDO")
+        with patch("herofreaks_source.PAUSED_FROM_GITHUB", False):
+            self.assertEqual(check_herofreaks(session, "EB05")["status"], "BUSCANDO")
 
     def test_paused_source_never_fetches_blocked_shop(self):
         session=Mock()
