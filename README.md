@@ -209,3 +209,8 @@ El bot consulta `https://tcglogpose.com/buscar?setCode=EB-05` y `https://tcglogp
 Las consultas a LOGPOSE se registran como `LOGPOSE_EB05` y `LOGPOSE_OP18` en el log. Si el HTML no permite reconocer de forma fiable la caja, se declara **no verificable** y no se inventa disponibilidad. De momento no genera avisos en Telegram ni modifica `state.json`. Para seguir otros sets (por ejemplo, OP-19), añadir la referencia a `WATCHED_SETS` en `logpose_sources.py` y verificar los resultados reales.
 
 En la primera ejecución real se comprobó que LOGPOSE devuelve enlaces de distintas variantes con etiquetas cercanas. Por seguridad, se limita a las fichas de **Booster Box EN** `/producto/429` (EB-05) y `/producto/453` (OP-18), y no utiliza la etiqueta de disponibilidad de su catálogo como confirmación de stock.
+
+
+## HeroFreaks (Almàssera, Valencia) — 29/10/2026
+
+Se comprueban **EB-05** y **OP-18** en las páginas de One Piece y Próximamente de `herofreaks.com`. Se buscan solamente enlaces de la ficha de **Booster Display**, y después se verifica el detalle del producto: referencia del set, idioma inglés (atributos WooCommerce) y botón de compra habilitado en la ficha. Las preventas, sobres individuales, productos japoneses, estados ambiguos y páginas inaccesibles **no generan alertas**. La primera confirmación de compra real en una caja inglesa sí avisa por Telegram con un enlace directo. El estado se guarda como `HEROFREAKS` y `OP18_HEROFREAKS` en `state.json` y aparece en los informes periódicos. El precio publicado de EB-05 a finales de octubre era 154,95 €, pero no confirma disponibilidad.

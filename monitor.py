@@ -15,6 +15,7 @@ from notification_outbox import queue_alert, pending_report_exists, send_telegra
 from product_guard import guarded_stock, is_english_display, preorder_marker
 from diagnose_sources import run_diagnostics
 from logpose_sources import format_comparator_report
+from herofreaks_source import check_herofreaks
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -1821,6 +1822,7 @@ def build_status_report(results):
         + len(DISCOVERY_PAGES)
         + len(OP18_DIRECT_PRODUCTS)
         + len(OP18_DISCOVERY_PAGES)
+        + 2  # HEROFREAKS y OP18_HEROFREAKS
     )
     healthy = sum(1 for item in results.values() if item.get("healthy"))
     connected = sum(1 for item in results.values() if item.get("connected"))
@@ -1841,7 +1843,8 @@ def build_status_report(results):
     lines = ["🩺 ESTADO MONITOR ONE PIECE EB-05 / OP-18", "", headline, ""]
 
     ordered_stores = (
-        list(DIRECT_PRODUCTS.keys())
+        ["HEROFREAKS", "OP18_HEROFREAKS"]
+        + list(DIRECT_PRODUCTS.keys())
         + list(DISCOVERY_PAGES.keys())
         + [f"OP18_{store}" for store in OP18_DIRECT_PRODUCTS]
         + [f"OP18_{store}" for store in OP18_DISCOVERY_PAGES]
@@ -2146,6 +2149,45 @@ def main():
                 run_results,
             ):
                 changed = True
+
+        # HeroFreaks: tienda local de Almàssera; comprobación específica WooCommerce.
+        # No confundir preventa ni sobres sueltos con display inglés disponible.
+        for code, key in (("EB05", "HEROFREAKS"), ("OP18", "OP18_HEROFREAKS")):
+            result = check_herofreaks(session, code)
+            print(f"HEROFREAKS_{code}: {result['status']}" +
+                  (f" [{result['url']}]" if result.get("ok") else " [no verificable]"))
+            run_results[key] = {
+                "connected": result["ok"],
+                "healthy": result["ok"],
+                "status": result["status"],
+                "via": "ficha HeroFreaks / HTTP",
+                "note": "no se pudo validar la ficha",
+            }
+            if result["ok"]:
+                previous = state.get(key, {})
+                entry = build_state_entry(
+                    mode="direct" if result["status"] != "BUSCANDO" else "discovery",
+                    status=result["status"],
+                    url=result["url"],
+                    previous=previous,
+                    product_url=result["url"] if result["status"] != "BUSCANDO" else None,
+                    product_name=result.get("name"),
+                )
+                # Solo caja en inglés, botón de compra real, sin preventa.
+                if (entry["status"] == "DISPONIBLE"
+                        and previous.get("status") != "DISPONIBLE"):
+                    set_label = "EB-05" if code == "EB05" else "OP-18"
+                    queue_alert(
+                        state, f"{code}_HEROFREAKS", entry["last_changed"],
+                        f"🚨 ONE PIECE {set_label} DISPONIBLE EN HEROFREAKS"
+                        f"\n\n🏪 HeroFreaks · Almàssera (Valencia)"
+                        f"\n✅ Booster Box en inglés con botón de compra"
+                        f"\n\n{result['url']}"
+                    )
+                    changed = True
+                if previous != entry:
+                    state[key] = entry
+                    changed = True
 
         for store, config in DISCOVERY_PAGES.items():
             if monitor_discovery_store(
