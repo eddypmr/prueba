@@ -42,7 +42,7 @@ class TelegramPresentationTests(unittest.TestCase):
         self.assertIn("🔴 Agotado: Garhis", result)
         self.assertIn("⚪ No verificable: Herofreaks", result)
         self.assertNotIn("🟢 EB-05 · Garhis", result)
-        self.assertIn("Solo 🟢 confirma compra", result)
+        self.assertIn("Solo 🟢 indica compra habilitada", result)
 
     def test_only_confirmed_transition_is_buy_alert(self):
         state = {}
