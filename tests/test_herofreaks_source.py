@@ -140,6 +140,79 @@ class HeroFreaksTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "DESCONOCIDO")
 
+    def test_elementor_snapshot_outofstock_and_related_buttons(self):
+        # Basado en la estructura de la ficha real, sin cookies ni datos privados.
+        html = (
+            '<div class="elementor-location-single product type-product outofstock">'
+            f'<h1 class="product_title entry-title">{TITLE}</h1>'
+            '<span class="elementor-button-text">PREVENTA</span>'
+            '<div class="elementor-widget-woocommerce-product-add-to-cart">'
+            '<div class="elementor-add-to-cart elementor-product-simple">'
+            '<p class="stock out-of-stock">Sin existencias</p>'
+            '<div id="yith-wcwtl-output" class="yith-wcwtl-output">'
+            '<p>¡Avísame cuando esté disponible!</p></div></div></div>'
+            '<table class="woocommerce-product-attributes">'
+            '<tr><th>Idioma</th><td>English</td></tr></table>'
+            '<div class="related"><a class="add_to_cart_button" href="?add-to-cart=99">'
+            'Añadir al carrito</a></div></div>'
+        )
+        self.assertEqual(analyze_product(html, URL, "EB05")[0], "NO_DISPONIBLE")
+
+    def test_elementor_available_requires_own_cart(self):
+        html = (
+            '<div class="elementor-location-single product type-product instock">'
+            f'<h1 class="product_title">{TITLE}</h1>'
+            '<table class="woocommerce-product-attributes">'
+            '<tr><th>Idioma</th><td>English</td></tr></table>'
+            '<div class="elementor-widget-woocommerce-product-add-to-cart">'
+            '<div class="elementor-add-to-cart elementor-product-simple">'
+            '<p class="stock in-stock">Hay existencias</p>'
+            '<form class="cart"><button type="submit" name="add-to-cart" '
+            'class="single_add_to_cart_button">Añadir al carrito</button></form>'
+            '</div></div></div>'
+        )
+        self.assertEqual(analyze_product(html, URL, "EB05")[0], "DISPONIBLE")
+
+    def test_elementor_related_buy_buttons_do_not_confirm_stock(self):
+        html = (
+            '<div class="elementor-location-single product type-product">'
+            f'<h1 class="product_title">{TITLE}</h1>'
+            '<table class="woocommerce-product-attributes">'
+            '<tr><th>Idioma</th><td>English</td></tr></table>'
+            '<div class="elementor-widget-woocommerce-product-add-to-cart"></div>'
+            '<a class="add_to_cart_button" href="?add-to-cart=99">'
+            'Añadir al carrito</a></div>'
+        )
+        self.assertEqual(analyze_product(html, URL, "EB05")[0], "DESCONOCIDO")
+
+    def test_elementor_preorder_badge_not_available(self):
+        html = (
+            '<div class="elementor-location-single product type-product instock">'
+            f'<h1 class="product_title">{TITLE}</h1>'
+            '<span class="elementor-button-text">PREVENTA</span>'
+            '<table class="woocommerce-product-attributes">'
+            '<tr><th>Idioma</th><td>English</td></tr></table>'
+            '<div class="elementor-widget-woocommerce-product-add-to-cart">'
+            '<form class="cart"><button class="single_add_to_cart_button">'
+            'Añadir al carrito</button></form></div></div>'
+        )
+        self.assertEqual(analyze_product(html, URL, "EB05")[0], "PREVENTA")
+
+    def test_known_direct_url_avoids_catalog_if_stock_confirmed(self):
+        session = Mock()
+        session.get.return_value = Mock(
+            status_code=200, url=URL,
+            text=('<div class="elementor-location-single product type-product outofstock">'
+                  f'<h1 class="product_title">{TITLE}</h1>'
+                  '<table class="woocommerce-product-attributes">'
+                  '<tr><th>Idioma</th><td>English</td></tr></table>'
+                  '<p class="stock out-of-stock">Sin existencias</p></div>')
+        )
+        result = check_herofreaks(session, "EB05", direct_url=URL)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "NO_DISPONIBLE")
+        session.get.assert_called_once()
+
     def test_403_never_confirms_stock(self):
         session=Mock()
         session.get.return_value=Mock(status_code=403,url="https://herofreaks.com/one-piece-card-game/",text="")
