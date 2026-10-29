@@ -158,6 +158,18 @@ class HeroFreaksTests(unittest.TestCase):
         )
         self.assertEqual(analyze_product(html, URL, "EB05")[0], "NO_DISPONIBLE")
 
+    def test_elementor_product_meta_before_language_attributes(self):
+        # En el HTML aportado por el usuario aparece .product_meta antes de Idioma.
+        html = (
+            '<div class="elementor-location-single product type-product outofstock">'
+            f'<h1 class="product_title">{TITLE}</h1>'
+            '<div class="product_meta">SKU 810199502786 Categoria One Piece</div>'
+            '<p class="stock out-of-stock">Sin existencias</p>'
+            '<table class="woocommerce-product-attributes">'
+            '<tr><th>Idioma</th><td>English</td></tr></table></div>'
+        )
+        self.assertEqual(analyze_product(html, URL, "EB05")[0], "NO_DISPONIBLE")
+
     def test_elementor_available_requires_own_cart(self):
         html = (
             '<div class="elementor-location-single product type-product instock">'
