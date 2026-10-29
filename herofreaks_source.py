@@ -140,7 +140,7 @@ def analyze_product(html, url, code):
     return "DESCONOCIDO", title
 
 
-def check_herofreaks(session, code):
+def check_herofreaks(session, code, browser=None):
     """Busca producto y comprueba ficha; errores nunca eliminan stock histórico."""
     if PAUSED_FROM_GITHUB:
         print(f"🔎 HEROFREAKS_{code}: PAUSADO (HTTP 403 desde GitHub; revisar manual)")
@@ -148,33 +148,40 @@ def check_herofreaks(session, code):
                 "reason": "Bloqueo HTTP 403 desde GitHub"}
     product_url = None
     at_least_one_catalog = False
-    for url in CATALOGS:
+
+    def fetch_page(url):
         try:
             response = session.get(url, timeout=12)
-            if response.status_code != 200 or not same_shop(response.url):
-                print(f"🔎 HEROFREAKS_{code}: catálogo HTTP {response.status_code}")
-                continue
-            html = response.text
-            if len(html) < 1000 or "one piece" not in html.lower():
-                print(f"🔎 HEROFREAKS_{code}: catálogo incompleto")
-                continue
-            at_least_one_catalog = True
-            product_url = find_product_link(html, response.url, code)
-            if product_url:
-                break
+            if response.status_code == 200 and same_shop(response.url):
+                return response.text, response.url, "HTTP"
+            print(f"🔎 HEROFREAKS_{code}: HTTP {response.status_code}")
+            if response.status_code != 403 or browser is None:
+                return None, url, "HTTP"
         except Exception as exc:
-            print(f"🔎 HEROFREAKS_{code}: error catálogo {type(exc).__name__}")
+            print(f"🔎 HEROFREAKS_{code}: error HTTP {type(exc).__name__}")
+            return None, url, "HTTP"
+
+        html, via, final_url = browser.fetch(url)
+        if html and same_shop(final_url) and len(html) > 1000:
+            print(f"🔎 HEROFREAKS_{code}: fallback {via} correcto")
+            return html, final_url, via
+        print(f"🔎 HEROFREAKS_{code}: fallback sin acceso verificable ({via})")
+        return None, url, via
+    for url in CATALOGS:
+        html, final_url, via = fetch_page(url)
+        if not html or "one piece" not in html.lower() or len(html) < 1000:
+            continue
+        at_least_one_catalog = True
+        product_url = find_product_link(html, final_url, code)
+        if product_url:
+            break
     if not product_url:
         if at_least_one_catalog:
             return {"ok": True, "status": "BUSCANDO", "url": CATALOGS[0]}
         return {"ok": False, "status": "DESCONOCIDO", "url": CATALOGS[0]}
-    try:
-        response = session.get(product_url, timeout=12)
-        if response.status_code != 200 or not same_shop(response.url):
-            return {"ok": False, "status": "DESCONOCIDO", "url": product_url}
-        status, title = analyze_product(response.text, response.url, code)
-        return {"ok": status != "DESCONOCIDO", "status": status,
-                "url": response.url, "name": title}
-    except Exception as exc:
-        print(f"🔎 HEROFREAKS_{code}: error ficha {type(exc).__name__}")
+    html, final_url, via = fetch_page(product_url)
+    if not html:
         return {"ok": False, "status": "DESCONOCIDO", "url": product_url}
+    status, title = analyze_product(html, final_url, code)
+    return {"ok": status != "DESCONOCIDO", "status": status,
+            "url": final_url, "name": title, "via": via}
