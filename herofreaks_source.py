@@ -15,9 +15,10 @@ CATALOGS = (
     ROOT + "/proximamente/",
 )
 SETS = {"EB05": "EB-05", "OP18": "OP-18"}
-# GitHub Actions recibió HTTP 403 en ambos catálogos (29/10/2026).
-# Pausado hasta disponer de acceso permitido y respuesta verificable.
-PAUSED_FROM_GITHUB = True
+# El 29/10/2026 GitHub Actions recibió HTTP 403 en ambos catálogos.
+# Reintentamos en cada ejecución: si persiste el bloqueo, el resultado será
+# DESCONOCIDO y nunca se notificará stock sin validar la ficha real.
+PAUSED_FROM_GITHUB = False
 TARGET = {
     "EB05": re.compile(r"(?<![a-z0-9])eb[\s_-]*0?5(?![a-z0-9])", re.I),
     "OP18": re.compile(r"(?<![a-z0-9])op[\s_-]*0?18(?![a-z0-9])", re.I),
