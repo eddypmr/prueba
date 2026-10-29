@@ -73,7 +73,7 @@ class HeroFreaksTests(unittest.TestCase):
                    '</ul>' + ' one piece ' * 120 + '</html>')
         browser.fetch.side_effect = [
             (catalog, "Playwright/Chromium", "https://herofreaks.com/one-piece-card-game/"),
-            (product('<form class="cart"><button class="single_add_to_cart_button">Comprar</button></form>'),
+            (product('<form class="cart"><button class="single_add_to_cart_button">Comprar</button></form>') + '<div>' + ' contenido descriptivo ' * 80 + '</div>',
              "Playwright/Chromium", URL),
         ]
         result = check_herofreaks(session, "EB05", browser)
