@@ -16,6 +16,7 @@ from product_guard import guarded_stock, is_english_display, preorder_marker
 from diagnose_sources import run_diagnostics
 from logpose_sources import format_comparator_report
 from herofreaks_source import check_herofreaks, DIRECT_PRODUCT_URLS
+from saruman_sources import check_saruman, COLLECTION_URL as SARUMAN_COLLECTION_URL
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -1770,7 +1771,7 @@ def status_report_due(state):
 def build_status_report(results):
     """Telegram breve: primero compras confirmadas, luego lo demás."""
     ordered = (
-        ["HEROFREAKS", "OP18_HEROFREAKS"]
+        ["HEROFREAKS", "OP18_HEROFREAKS", "SARUMAN_GAMES", "OP18_SARUMAN_GAMES"]
         + list(DIRECT_PRODUCTS)
         + list(DISCOVERY_PAGES)
         + [f"OP18_{store}" for store in OP18_DIRECT_PRODUCTS]
@@ -2151,6 +2152,42 @@ def main():
                 run_results,
                 catalog_cache,
             ):
+                changed = True
+
+        # Saruman Games: JSON público de Shopify; un catálogo para ambos sets.
+        # Sólo se generan alertas con variante de display inglés comprable,
+        # nunca para preventas ni ante páginas de error.
+        saruman = check_saruman(session)
+        for code, key in (("EB05", "SARUMAN_GAMES"),
+                          ("OP18", "OP18_SARUMAN_GAMES")):
+            result = saruman[code]
+            run_results[key] = {
+                "connected": result["ok"],
+                "healthy": result["ok"],
+                "status": result["status"] if result["ok"] else "DESCONOCIDO",
+                "via": "Shopify products.json",
+                "note": result.get("reason", ""),
+                "price": result.get("price"),
+            }
+            if not result["ok"]:
+                continue
+
+            previous = state.get(key, {})
+            status = result["status"]
+            item_url = result.get("url") or SARUMAN_COLLECTION_URL
+            entry = build_state_entry(
+                mode="discovery" if status == "BUSCANDO" else "discovered_product",
+                status=status,
+                url=SARUMAN_COLLECTION_URL,
+                previous=previous,
+                product_url=item_url if status != "BUSCANDO" else None,
+                product_name=result.get("name"),
+                price=result.get("price"),
+            )
+            if code == "EB05":
+                if update_store_state(state, "SARUMAN_GAMES", entry):
+                    changed = True
+            elif update_op18_state(state, "SARUMAN_GAMES", entry):
                 changed = True
 
         # Estos vendedores son candidatos: nunca modifican state.json

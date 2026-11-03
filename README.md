@@ -214,3 +214,12 @@ En la primera ejecución real se comprobó que LOGPOSE devuelve enlaces de disti
 ## HeroFreaks (Almàssera, Valencia) — 29/10/2026
 
 El código de comprobación de **EB-05** y **OP-18** está preparado para las páginas de One Piece y Próximamente de `herofreaks.com`. **IMPORTANTE (29/10/2026): ambos catálogos devolvieron HTTP 403 al runner de GitHub; se ha pausado la consulta automática para no insistir contra el bloqueo. No se enviarán alertas de HeroFreaks mientras esté pausado.** Reanudar solo cuando exista una fuente autorizada y verificable, y validar las fichas reales antes de confiar en la alerta. Se buscan solamente enlaces de la ficha de **Booster Display**, y después se verifica el detalle del producto: referencia del set, idioma inglés (atributos WooCommerce) y botón de compra habilitado en la ficha. Las preventas, sobres individuales, productos japoneses, estados ambiguos y páginas inaccesibles **no generan alertas**. La primera confirmación de compra real en una caja inglesa sí avisa por Telegram con un enlace directo. El estado se guarda como `HEROFREAKS` y `OP18_HEROFREAKS` en `state.json` y aparece en los informes periódicos. El precio publicado de EB-05 a finales de octubre era 154,95 €, pero no confirma disponibilidad.
+
+
+## Saruman Games (España) — 03/11/2026
+
+- Catálogo oficial One Piece: https://sarumangames.es/collections/one-piece-juego-de-cartas-coleccionables
+- Consulta pública de Shopify `products.json?limit=250` compartida por EB-05 y OP-18, una vez por ejecución. Solo se admiten **Booster Boxes / Displays ingleses**; se descartan cases, sobres, productos japoneses, desprecintados y tickets de presentación.
+- Los datos de variantes Shopify señalan si la compra está habilitada. Las **reservas/preventas**, backorders y estados sin identidad EN demostrable **no activan avisos de disponibilidad inmediata**.
+- Se añade al resumen Telegram como `SARUMAN_GAMES` y `OP18_SARUMAN_GAMES`. Si la consulta falla o Shopify bloquea el acceso, se informa `no verificable`, conservando el estado anterior en `state.json`. Si se verifica una caja inglesa comprable, se genera la alerta de transición habitual con enlace a la ficha.
+- Las páginas nuevas que todavía no incluyen idioma/formato explícito quedan sin confirmar por seguridad. Revisar logs `SARUMAN_EB05` y `SARUMAN_OP18` después de la ejecución.
