@@ -89,6 +89,12 @@
     "status": "NO_DISPONIBLE",
     "url": "https://www.paperdealer.eu/collections/one-piece-tcg"
   },
+  "OP18_SARUMAN_GAMES": {
+    "last_changed": "2026-11-03T21:11:00+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://sarumangames.es/collections/one-piece-juego-de-cartas-coleccionables"
+  },
   "OP18_ZACATRUS": {
     "last_changed": "2026-10-10T17:01:15+00:00",
     "mode": "discovery",
@@ -100,6 +106,12 @@
     "mode": "discovery",
     "status": "BUSCANDO",
     "url": "https://www.paperdealer.eu/collections/one-piece-tcg"
+  },
+  "SARUMAN_GAMES": {
+    "last_changed": "2026-11-03T21:11:00+00:00",
+    "mode": "discovery",
+    "status": "BUSCANDO",
+    "url": "https://sarumangames.es/collections/one-piece-juego-de-cartas-coleccionables"
   },
   "ZACATRUS": {
     "last_changed": "2026-09-30T16:37:47+00:00",
