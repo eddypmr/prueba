@@ -339,6 +339,14 @@
       "sent_at": "2026-10-25T07:02:02+00:00",
       "source": "status_report"
     },
+    "9e476d5d72fcd2ec60a137b5e55e4e22": {
+      "attempts": 0,
+      "created_at": "2026-11-07T02:32:09+00:00",
+      "kind": "report",
+      "message": "📦 ONE PIECE · RESUMEN DE STOCK\n\nℹ️ Ninguna caja con compra confirmada ahora.\n\nEB-05:\n🔴 Agotado: Kaburi\n🔎 Sin ficha encontrada: Saruman Games, Ingenio BCN, Mathom, Zacatrus, Paper Dealer\n⚪ No verificable: Herofreaks, Garhis, Gameria, Metropolis Center\n\nOP-18:\n🔴 Agotado: Kaburi\n🔎 Sin ficha encontrada: Saruman Games, Ingenio BCN, Mathom, Zacatrus\n⚪ No verificable: Herofreaks, Gameria, Paper Dealer, Metropolis Center\n\n👉 Solo 🟢 indica compra habilitada. ⚪ no significa agotado.",
+      "sent_at": null,
+      "source": "status_report"
+    },
     "a3efd509f3df0fd8d6eb800b69e8e235": {
       "attempts": 1,
       "created_at": "2026-10-23T06:10:09+00:00",
