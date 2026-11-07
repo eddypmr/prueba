@@ -120,7 +120,7 @@
     "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece"
   },
   "_meta": {
-    "last_status_report": "2026-11-06T14:02:46+00:00"
+    "last_status_report": "2026-11-07T02:32:11+00:00"
   },
   "_outbox": {
     "1215f5cb7ff85c737046aef6babc3368": {
@@ -340,11 +340,12 @@
       "source": "status_report"
     },
     "9e476d5d72fcd2ec60a137b5e55e4e22": {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-07T02:32:09+00:00",
       "kind": "report",
+      "last_attempt_at": "2026-11-07T02:32:11+00:00",
       "message": "📦 ONE PIECE · RESUMEN DE STOCK\n\nℹ️ Ninguna caja con compra confirmada ahora.\n\nEB-05:\n🔴 Agotado: Kaburi\n🔎 Sin ficha encontrada: Saruman Games, Ingenio BCN, Mathom, Zacatrus, Paper Dealer\n⚪ No verificable: Herofreaks, Garhis, Gameria, Metropolis Center\n\nOP-18:\n🔴 Agotado: Kaburi\n🔎 Sin ficha encontrada: Saruman Games, Ingenio BCN, Mathom, Zacatrus\n⚪ No verificable: Herofreaks, Gameria, Paper Dealer, Metropolis Center\n\n👉 Solo 🟢 indica compra habilitada. ⚪ no significa agotado.",
-      "sent_at": null,
+      "sent_at": "2026-11-07T02:32:11+00:00",
       "source": "status_report"
     },
     "a3efd509f3df0fd8d6eb800b69e8e235": {
