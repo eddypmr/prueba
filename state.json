@@ -120,7 +120,7 @@
     "url": "https://zacatrus.es/catalogsearch/result/?q=one+piece"
   },
   "_meta": {
-    "last_status_report": "2026-11-14T18:02:31+00:00"
+    "last_status_report": "2026-11-15T06:32:27+00:00"
   },
   "_outbox": {
     "0b59aa2c7b797f5913f3546ed9e74bd9": {
@@ -583,11 +583,12 @@
       "source": "status_report"
     },
     "e512a8a9a58dc95cf8ce6c8abcabc15d": {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-15T06:32:25+00:00",
       "kind": "report",
+      "last_attempt_at": "2026-11-15T06:32:27+00:00",
       "message": "📦 ONE PIECE · RESUMEN DE STOCK\n\n🟢 ENTRA AHORA — STOCK VERIFICADO\n🟢 EB-05 · Kaburi · 199,00 €\n\nEB-05:\n🔴 Agotado: Garhis\n🔎 Sin ficha encontrada: Saruman Games, Ingenio BCN, Zacatrus, Paper Dealer\n⚪ No verificable: Herofreaks, Gameria, Mathom, Metropolis Center\n\nOP-18:\n🔴 Agotado: Kaburi\n🔎 Sin ficha encontrada: Saruman Games, Ingenio BCN, Zacatrus\n⚪ No verificable: Herofreaks, Gameria, Mathom, Paper Dealer, Metropolis Center\n\n👉 Solo 🟢 indica compra habilitada. ⚪ no significa agotado.",
-      "sent_at": null,
+      "sent_at": "2026-11-15T06:32:27+00:00",
       "source": "status_report"
     },
     "e5ae5c5b0ca49fd6ad0f7066c81c575e": {
