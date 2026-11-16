@@ -23,7 +23,7 @@ from urllib3.util.retry import Retry
 
 STATE_FILE = Path("state.json")
 
-# Keepalive 2026-10-23: revisión de salud; sin cambios en detección, Telegram ni cron.
+# Keepalive 2026-11-16: reactivación inocua; sin cambios en detección, Telegram ni cron.
 
 
 USER_AGENT = (
